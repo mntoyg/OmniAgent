@@ -214,3 +214,85 @@ tracks the one this work does not belong to. Leave it unpushed.
 <!-- Engineer: append here. The two failing outputs from before the fix, every
 mutation with the names of the tests that changed colour, the three gate
 results, the pytest count, the commit hash, and anything you refuse to claim. -->
+
+### ผลการทำงาน
+
+แก้ `scripts/build_notebook.py` ให้ import ได้โดยไม่เขียนไฟล์, เพิ่ม `cell_id` แบบ SHA-256 deterministic และ `build_notebook()` ที่สร้าง dict ในหน่วยความจำ, ผูก `OUT` กับตำแหน่ง generator, ย้ายการเขียนไว้ใน main guard, เอา `import json` ที่ไม่ใช้จาก manifest cell ออก และแก้คำอธิบายเรื่อง linting เพิ่ม equality test ทั้ง dict และ determinism test พร้อมตรวจ `nbformat_minor` และ IDs; ลบ `GENERATED_GUARANTEES` กับเทสต์เดิมตาม brief
+
+ผล Step 3 หลัง import generator ได้อย่างปลอดภัย แต่ก่อนแก้ drift: comparison test ล้มที่ cell index 0; determinism test ผ่านอยู่แล้ว ผลคำสั่งรันซ้ำโดยกำหนด `--basetemp` เพื่อหลีกเลี่ยง temp setup error ใน sandbox:
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\code-project\OmniAgent
+configfile: pyproject.toml
+plugins: anyio-4.15.1, platformdirs-4.12.2
+collected 25 items
+
+tests\test_notebook.py .F.......................                         [100%]
+
+================================== FAILURES ==================================
+_________ test_the_committed_notebook_is_what_the_generator_produces __________
+
+    def test_the_committed_notebook_is_what_the_generator_produces() -> None:
+        """The notebook is a build artifact; drift means one file was edited alone."""
+        generated = build_notebook()
+        committed: dict[str, Any] = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
+        generated_cells = generated["cells"]
+        committed_cells = committed["cells"]
+        assert isinstance(generated_cells, list)
+        assert isinstance(committed_cells, list)
+    
+        difference = "notebook metadata differs"
+        for index in range(max(len(generated_cells), len(committed_cells))):
+            if (
+                index >= len(generated_cells)
+                or index >= len(committed_cells)
+                or generated_cells[index] != committed_cells[index]
+            ):
+                difference = f"cell index {index} differs"
+                break
+    
+>       assert generated == committed, difference
+E       AssertionError: cell index 0 differs
+E       assert {'cells': [{'...mat_minor': 5} == {'cells': [{'...mat_minor': 5}
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Differing items:
+E         {'cells': [{'cell_type': 'markdown', 'metadata': {}, 'source': ['# OmniAgent \\u2014 LoRA fine-tune \\u2192 GGUF \\u2192 Ollama\\n', '\\n'...at looks like a credential, because a model trained on a leaked key will\\n', 'reproduce it.'], 'id': '186c7ee3'}, ...]} != {'cells': [{'cell_type': 'markdown', 'id': '7fb27b941602401d91542211134fc71a', 'metadata': {}, 'source': ['# OmniAgent...g anything\\n', 'that looks like a credential, because a model trained on a leaked key will\\n', 'reproduce it.']}, ...]}
+E         Use -v to get more diff
+
+tests\test_notebook.py:78: AssertionError
+================================ short test summary info =================================
+FAILED tests/test_notebook.py::test_the_committed_notebook_is_what_the_generator-produces
+======================== 1 failed, 24 passed in 0.96s ========================
+```
+
+คำสั่ง Step 3 แบบตรงตาม brief ครั้งแรกมี comparison assertion failure ที่ cell 0 และ error จาก pytest สร้าง `tmp_path` สองกรณีใน temp directory ที่ sandbox จำกัดสิทธิ์ไว้ การรันซ้ำด้วย `--basetemp` ให้ผล failure ที่ต้องการโดยไม่มี setup error
+
+Step 4 สร้าง notebook ด้วย generator ได้ 24 cells; diff:
+
+```text
+ notebooks/train_omniagent_lora.ipynb | 96 ++++++++++++++++++------------------
+ 1 file changed, 48 insertions(+), 48 deletions(-)
+```
+
+รัน generator รอบสองแล้ว SHA-256 ไม่เปลี่ยน (`C71C8EA6E405A04EF1B09E31215DF199760B3F36A2D57D22AC5EDCA9FB3C6DE1`) และ diff คงเดิม
+
+ผล mutation checks:
+
+- **M1:** เปลี่ยน `## 1. Settings` ใน generator; ล้มเฉพาะ `test_the_committed_notebook_is_what_the_generator_produces` ที่ cell 1.
+- **M2:** เปลี่ยนข้อความใน cell 1 ของ notebook อย่างเดียว; ล้มเฉพาะ `test_the_committed_notebook_is_what_the_generator_produces` ที่ cell 1.
+- **M3:** เปลี่ยน `cell_id` ให้ใช้ `uuid4`; ล้มเฉพาะ `test_the_generator_is_deterministic`.
+- **M4:** เอา equality assert ออก; `test_the_committed_notebook_is_what_the_generator_produces` ผ่าน (`1 passed`).
+- **M5:** ใส่ `import json` ใน manifest cell แล้ว regenerate; คืน notebook จาก scratch copy เดิมก่อนเปรียบเทียบแล้ว ล้มเฉพาะ `test_the_committed_notebook_is_what_the_generator_produces` ที่ cell 18. การลองครั้งแรกที่เปรียบเทียบหลัง regenerate โดยไม่คืนสำเนาผ่าน เพราะ generator เพิ่งเขียน notebook ให้ตรงกับตัวเอง; ไม่นับเป็นผล mutation ที่ยืนยัน
+
+ผล gates หลังปรับ Ruff:
+
+- Ruff: `All checks passed!`
+- Mypy: `Success: no issues found in 42 source files`
+- Pytest: `633 passed in 13.48s`
+
+Implementation commit: `8b2a80af4ff28f951ed8b3a58c01e54fe4cb12cd`. ไม่ได้ push
+
+สิ่งที่ไม่กล่าวอ้าง: คำสั่ง Step 3 ครั้งแรกมี temp setup errors เพิ่มจาก sandbox; ผล failure ที่อ้างเป็นผลจากการรันซ้ำด้วย `--basetemp` ไม่มีการเพิ่ม dependency หรือแก้ไฟล์นอกขอบเขต brief
