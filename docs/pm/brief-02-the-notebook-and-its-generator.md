@@ -296,3 +296,89 @@ Step 4 สร้าง notebook ด้วย generator ได้ 24 cells; diff:
 Implementation commit: `8b2a80af4ff28f951ed8b3a58c01e54fe4cb12cd`. ไม่ได้ push
 
 สิ่งที่ไม่กล่าวอ้าง: คำสั่ง Step 3 ครั้งแรกมี temp setup errors เพิ่มจาก sandbox; ผล failure ที่อ้างเป็นผลจากการรันซ้ำด้วย `--basetemp` ไม่มีการเพิ่ม dependency หรือแก้ไฟล์นอกขอบเขต brief
+
+---
+
+## PM verification — 2026-10-23, `8b2a80a`
+
+Re-run on the committed state. Every figure below came from a command in this
+session.
+
+| Gate | Result |
+| --- | --- |
+| `ruff check .` | **All checks passed!** |
+| `mypy` | **Success: no issues found in 42 source files** |
+| `pytest` | **633 passed in 9.82s** — the predicted count |
+
+### The central guarantee, proved rather than read
+
+The brief's one way to get this wrong was a test that writes the notebook and
+then compares it to itself. Imported the generator **from `C:/`**, a different
+working directory:
+
+```
+imported, cells: 24
+OUT resolves to: D:\code-project\OmniAgent\notebooks\train_omniagent_lora.ipynb
+```
+
+sha256 before and after both `c71c8ea6…`, **mtime unchanged** at `1792735588`,
+`git status` empty. The import touches no file, and `OUT` is anchored to
+`__file__` rather than the working directory — the old bug would have written
+to `C:/notebooks/`, and there is no such directory.
+
+Ran the generator **twice from `C:/`**: the notebook is byte-identical at
+`c71c8ea6…`, `git status` clean, no stray `C:/notebooks`. Regeneration is
+idempotent, so `cell_id` is genuinely deterministic.
+
+### M2 and M4, re-run independently
+
+M2 is the check that matters — the drift that actually happened was on the
+notebook side. Mutated `## 1. Settings` to `## 1. Settingz` **in the notebook
+alone**, generator untouched, restored from a scratchpad copy afterwards:
+
+```
+1 failed, 632 passed in 9.72s
+FAILED tests/test_notebook.py::test_the_committed_notebook_is_what_the_generator_produces
+```
+
+Exactly one test red and it is the new one. M4: replaced the equality assert
+with `assert True, difference` — `25 passed in 0.63s`. So the red above comes
+from that assert and nothing else.
+
+### Also checked
+
+- `import json` is gone from the committed notebook: `grep -c` returns **0**.
+- `joined()` is still used five times, so deleting the old test left no dead
+  helper behind.
+- `scripts/build_notebook.py --help` **still regenerates instead of printing
+  help**, because the script takes no arguments. It is now harmless: the
+  regeneration is byte-identical and `git status` stays clean, so the
+  2026-10-11 accident can no longer take a day's work with it. Recorded in
+  `NEXT_CHAT.md`, not fixed, and deliberately not added to this brief's scope.
+- The deleted `GENERATED_GUARANTEES` comment carried the 2026-10-11 incident.
+  **No history was lost** — `NEXT_CHAT.md` already records it, and that entry
+  has now been struck through where it called the deleted test "the guard that
+  was missing".
+
+### The lesson this turned up
+
+That 2026-10-11 entry also recorded the old test as mutation-checked both ways.
+It was — by reverting one of the six snippets it asserts, which is the one
+thing it is built to see. **A mutation drawn from the test's own assumptions
+can only confirm what the test already covers.** That is why a test named for
+this exact failure sat green over the real drift for twelve days. Added to the
+trap list.
+
+### Verdict
+
+**No defects found.** Every interface the brief specified is present and
+proved: no I/O on import, `OUT` anchored to `__file__`, a `__main__` guard,
+deterministic ids, the unused import gone, the snippet test replaced by an
+equality check over the whole document, and `nbformat_minor` plus per-cell
+`id` now asserted.
+
+Two things the engineer reported against itself, both correct and both to its
+credit: its first M5 attempt passed because it compared after regenerating —
+the file against itself — and it discarded that result and redid it; and its
+first Step 3 run had `tmp_path` setup errors from the sandbox, so it re-ran
+with `--basetemp` and said so rather than quoting the first output.

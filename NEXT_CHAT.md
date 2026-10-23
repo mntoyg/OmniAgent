@@ -669,10 +669,24 @@ tests went red at once with the previous day's work inside them. Restored from
 a scratchpad copy (not `git restore` alone), then moved all four changes into
 the generator where they survive regeneration.
 
-`test_the_notebook_and_its_generator_agree` is the guard that was missing: it
+~~`test_the_notebook_and_its_generator_agree` is the guard that was missing: it
 asserts each guarantee's exact text appears in **both** files. Mutation-checked
 both ways -- reverting the generator alone turns it red, reverting the notebook
-alone turns it red plus three others.
+alone turns it red plus three others.~~
+
+**Superseded 2026-10-23, `8b2a80a`. That test was deleted.** It was not the
+guard it reads as. It asserted that six fixed snippets appear in both files, so
+it could only ever see drift in a line one of those snippets names. The drift
+that actually happened -- an unused `import json` the generator emits and the
+notebook had removed from it alone -- was invisible to it, and it was green
+throughout.
+
+**And the mutation check above is why that went unnoticed for twelve days.**
+Both mutations were chosen by reverting a *guaranteed* snippet, which is the
+one thing the test is built to see. A mutation drawn from the test's own
+assumptions can only confirm what the test already covers. Replaced by
+`test_the_committed_notebook_is_what_the_generator_produces`, an equality check
+over the whole document, with `test_the_generator_is_deterministic` beside it.
 
 **Task 2 complete** (`ee0c0e6`). `scripts/run_dir.py`: `new_run_dir` names a
 run for the second it started in and counts `-2`, `-3` on collision;
@@ -785,6 +799,7 @@ was listed when its sentence is correct as written; and
 exist.
 
 
+## 2026-10-23: brief 01, brief 02, and the plan closed**The plan `docs/superpowers/plans/2026-10-06-train-and-deploy.md` is done.**Tasks 1-4 complete. HEAD `3ee7950`. **~~631~~ ~~632~~ 633 tests**, ruff clean,mypy strict clean over 42 files.- **Brief 01 (`675e0de`)** -- Task 4. Only `scripts/smoke_train.py` ever  contradicted the manifest. Three errors were found in the plan's own Task 4  section before a line was written: `README.md` listed as a file to modify  while holding no occurrence of the string, `build_notebook.py` listed when  its sentence is correct as written, and `tests/test_local_only.py` listed as  an existing test file when it did not exist.- **Brief 02 (`8b2a80a`)** -- the notebook is now provably its generator's  output. The generator gained `build_notebook()` returning the dict with no  I/O, a deterministic `cell_id` (sha256 of index plus source, 8 hex), `OUT`  anchored to `__file__` instead of the working directory, and a `__main__`  guard. It had been writing the notebook **at import time**, so any test that  imported it would have overwritten the real file and compared it to itself.Verified by the project manager on the committed state, not read from a report:importing the generator from `C:/` leaves the notebook's sha256 **and mtime**unchanged and `git status` clean; running it twice from `C:/` leaves`c71c8ea6...` byte-identical with no stray `C:/notebooks`; mutating the**notebook alone** gives `1 failed, 632 passed` with only the comparison testred; neutering that test's assert turns the file green again, which is how thered is known to come from it.`scripts/build_notebook.py --help` still regenerates instead of printing help,because the script takes no arguments. It is now harmless: the regeneration isbyte-identical, so the 2026-10-11 accident cannot take a day's work with itagain.**Still open from this round:** nothing in brief 01 or 02. The data-directoryeval question is untouched and needs ten runs, so it waits for quota.
 ## Traps already paid for once
 
 - **Ollama does not autostart**, but it may already be up — check first:
@@ -835,6 +850,22 @@ exist.
   `--force-reinstall` with the explicit local version.
 - **Global `pip` fails under the sandbox**; venv pip on `D:` works.
 - **`\b` does not match inside `OMNIAGENT_API_KEY`** (`_` is a word character).
+- **A mutation drawn from the test's own assumptions proves nothing.** On
+  2026-10-11 `test_the_notebook_and_its_generator_agree` was mutation-checked
+  by reverting one of the six snippets it asserts -- the one thing it is built
+  to see -- and passed. It could not see a line outside that list, which is
+  exactly the drift that then sat in the repository for twelve days. Pick the
+  mutation from what the code must do, not from what the test looks at.
+- **`git push` with no remote named goes to `organization/main`**
+  (OmniBase-Official/OmniAgent), not to `origin` (mntoyg/OmniAgent). `main`
+  tracks the organization remote and `push.default` is unset. Name the remote.
+- **`omniagent-core/` is not on `main`.** It is a C++20 CPU runtime on the
+  branch `core-offline-runtime` (`cfbde93`), outside all three gates. CMake
+  hard-fails off Linux/GCC-Clang and hard-fails without a local llama.cpp
+  checkout pinned by SHA256 to `869034b4`, which lives under gitignored
+  `models/`, so a clone of that branch cannot build it. Its only evidence is a
+  ctest log dated 2026-10-11, 4/4 passed under WSL. Merging it needs a fourth
+  gate first. Its one Python file passes ruff and mypy strict as written.
 
 ## If the tools or the system prompt change
 
