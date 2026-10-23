@@ -883,12 +883,25 @@ exist.
   (OmniBase-Official/OmniAgent), not to `origin` (mntoyg/OmniAgent). `main`
   tracks the organization remote and `push.default` is unset. Name the remote.
 - **`omniagent-core/` is not on `main`.** It is a C++20 CPU runtime on the
-  branch `core-offline-runtime` (`cfbde93`), outside all three gates. CMake
-  hard-fails off Linux/GCC-Clang and hard-fails without a local llama.cpp
-  checkout pinned by SHA256 to `869034b4`, which lives under gitignored
-  `models/`, so a clone of that branch cannot build it. Its only evidence is a
-  ctest log dated 2026-10-11, 4/4 passed under WSL. Merging it needs a fourth
-  gate first. Its one Python file passes ruff and mypy strict as written.
+  branch `core-offline-runtime`, ~~(`cfbde93`), outside all three gates~~ now
+  at `9638a04` **with a fourth gate of its own**, `.github/workflows/core.yml`,
+  running four `ctest` targets on every push that touches `omniagent-core/**`.
+  CMake still hard-fails off Linux/GCC-Clang and still hard-fails without a
+  local llama.cpp checkout pinned by SHA256 to `869034b4`, which lives under
+  gitignored `models/`. ~~so a clone of that branch cannot build it~~ —
+  **that was true until `52c3b11`, 2026-10-23.** The pinned fingerprint was the
+  hash of a **Windows CRLF** working tree, so a clean Linux checkout of the
+  named commit was refused by the check that names it. It is now the canonical
+  LF hash `d5cf9203…`, and the error message prints what it computed.
+  ~~Its only evidence is a ctest log dated 2026-10-11, 4/4 passed under WSL.~~
+  **Hosted evidence: run `39927752691` on `ubuntu-latest`, 4/4 passed, 1m 21s,
+  image `ubuntu24/20261012.334`**, including a step that proves the fingerprint
+  still refuses a CRLF header and one that records the runner's `/tmp` as
+  `magic 0xef53`, which `src/local_file.cpp:19-25` allows. Its one Python file
+  passes ruff and mypy strict as written. **Nothing guards the gate file from
+  being deleted**, and `ubuntu-latest` began migrating to Ubuntu 26 on
+  2026-10-19, so the `/tmp` type the gate depends on can change with no commit
+  here — pinning `runs-on: ubuntu-24.04` is open and undecided.
 
 ## If the tools or the system prompt change
 
