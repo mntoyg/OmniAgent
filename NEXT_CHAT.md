@@ -277,13 +277,36 @@ became 2-3; the data directory was 7-9 and became 3-9.
    fact about `data/`, which is the output directory every run writes into --
    85 files now, and the question flipped from OK to WRONG because of that.
    A metric that moves when you measure is not a metric.
-1. **`search_text` enumerates `.venv` and `models/`.** It does
+1. **`search_text` resolves every leaf under a refused branch.** ~~It does
    `sorted(start.rglob("*"))`, materialising every path before filtering, so a
-   search from `.` costs **25.7 s unsealed and 64.5 s sealed**, and one
-   question takes ~115 s. The eval-workspace test walk had the same shape and
-   went **113 s → 1.1 s** by pruning branches as it descends. Worth doing for
-   the clock, **not** a prerequisite: a full `holdout_eval` measured 544 s,
-   inside the 600 s limit.
+   search from `.` costs **25.7 s unsealed and 64.5 s sealed**~~ — **that
+   diagnosis is retracted, 2026-10-23, measured.** Materialising the paths is
+   **1.6 s of a 26.6 s run, 6%**. The cost is
+   `workspace.resolve(workspace.display(candidate))` called once per candidate
+   **file**: **69,186 of them are refused** by `sandbox.py:181 _is_hidden`
+   under `.venv`, `.ci-venv` and `.git`, each paying a full path resolution and
+   a raised `SandboxError` that is thrown away. That is **23.3–25.5 s, 87–88%
+   of the run**, stable over three runs. Reading the 400 files it does scan is
+   **0.04 s warm**. So the 25.7 s already recorded was essentially all
+   `resolve()`.
+
+   The prescription in the old note — prune branches as the walk descends, the
+   way `tests/test_eval_workspace.py:113` does — **is still the right fix**,
+   and it is worth ~25 s rather than the ~1.5 s the old diagnosis implied.
+   Pruning dot-directories takes the enumeration from 87,482 paths at 1.6 s to
+   **4,578 paths at 0.06–0.08 s**. Brief:
+   `docs/pm/brief-03-search-text-prunes-as-it-descends.md`.
+
+   One question still takes ~115 s and a full `holdout_eval` measured 544 s,
+   inside the 600 s limit, so this remains worth doing for the clock and
+   **not** a prerequisite.
+
+   **Separately, and not in that brief:** of the 400 files a root search
+   scans, **285 are under `models/`** and 92 under `data/`, against 9 under
+   `docs/`. `models/` is neither hidden nor denied, so it is in scope by the
+   workspace's own rules and takes 71% of the budget. Narrowing that is a
+   tool-behaviour change and the 153-example dataset was collected against the
+   current behaviour, so it needs a decision and a re-collection, not a patch.
 2. **`holdout_eval` is 11/16 sealed, on one run.** Settle it on ten. At 544 s
    each, ten runs is ~90 minutes of clock and almost no quota — start them in
    the background one at a time, never two.
