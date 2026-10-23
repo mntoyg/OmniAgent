@@ -899,9 +899,17 @@ exist.
   still refuses a CRLF header and one that records the runner's `/tmp` as
   `magic 0xef53`, which `src/local_file.cpp:19-25` allows. Its one Python file
   passes ruff and mypy strict as written. **Nothing guards the gate file from
-  being deleted**, and `ubuntu-latest` began migrating to Ubuntu 26 on
+  being deleted.** ~~`ubuntu-latest` began migrating to Ubuntu 26 on
   2026-10-19, so the `/tmp` type the gate depends on can change with no commit
-  here — pinning `runs-on: ubuntu-24.04` is open and undecided.
+  here — pinning `runs-on: ubuntu-24.04` is open and undecided.~~
+  **Pinned 2026-10-23 in `da1a5be`:** `runs-on: ubuntu-24.04` with the reason
+  beside it, and both checkouts at `actions/checkout@v5`. Verified on run
+  `39929249216`: **4/4 passed in 1m 49s**, `/tmp` still `0xef53`, the
+  CRLF refusal still firing, and **both deprecation annotations gone**. When the
+  `ubuntu-24.04` label is retired this job will fail loudly on an unknown label
+  rather than quietly measure a different filesystem, which is the trade.
+  `actions/checkout` is at `v7.0.1`; `v5` clears the Node.js 20 deprecation and
+  is two majors behind, by decision.
 
 ## If the tools or the system prompt change
 
