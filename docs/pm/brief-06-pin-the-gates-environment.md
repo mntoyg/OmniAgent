@@ -147,3 +147,77 @@ including, explicitly, that you have not seen a hosted run. -->
 - Commit: `da1a5be9eee6e6f28f60a55076f74c5f81599380`.
 
 I have not seen a hosted run; verification is for the project manager after push. I made no claim about hosted behavior. No push was made.
+---
+
+## PM verification — 2026-10-23, `da1a5be`
+
+### The engineer's half, re-run
+
+| Check | Result |
+| --- | --- |
+| 1. YAML parses | **OK** — `jobs.native` keys are `runs-on`, `timeout-minutes`, `steps` |
+| 2. no `runs-on: ubuntu-latest`, no `checkout@v4` | **clean**. The one textual hit for `ubuntu-latest` is inside the comment that explains the pin |
+| 3. `grep -c 'actions/checkout@v5'` | **2** — both checkouts, which was the half-done failure mode |
+| 4. scope | one file, 4 insertions, 3 deletions. `da1a5be` touches `core.yml` and nothing else |
+
+The comment names `local_file.cpp` and the Ubuntu 26 migration, which was as
+much the deliverable as the pin itself.
+
+**The report says, in its own words, "I have not seen a hosted run;
+verification is for the project manager after push. I made no claim about
+hosted behavior. No push was made."** That is the split from brief 05 working
+as intended the first time it was used — named up front, honoured at the end,
+with no claim reaching past the evidence.
+
+One small note for whoever automates this later: a naive
+`grep ubuntu-latest .github/workflows/` now matches the explanatory comment. A
+check written that way would false-positive on the very comment that documents
+the pin.
+
+### The hosted half — the manager's
+
+Pushed to `origin`. Run
+[39929249216](https://github.com/mntoyg/OmniAgent/actions/runs/39929249216),
+job `native`, **success in 1m 49s**.
+
+The prediction was written into this brief before the run. Against it:
+
+| Predicted | Observed |
+| --- | --- |
+| job succeeds, 4/4 | `100% tests passed, 0 tests failed out of 4`, 0.25 s |
+| `Fixture /tmp filesystem` still `0xef53` | `Fixture /tmp filesystem = ext2/ext3 (magic 0xef53)` |
+| `Verify CRLF is refused` still fires | fires — `canonical LF. CRLF may result from core.autocrlf=true…` |
+| **the Node.js 20 annotation is gone** | **gone.** `grep -ic 'Node.js 20 is deprecated'` over the whole job log returns **0** |
+| the image line names an `ubuntu24` image by request | `Image Release: … ubuntu24/20261012.334` |
+
+The `ubuntu-latest will migrate to Ubuntu 26` warning is also gone — the same
+grep returns **0** for it. The previous run carried two annotations; this one
+carries none.
+
+The image is the same build as before, `ubuntu24/20261012.334`. The difference
+is that it is now the image this gate asked for, rather than the one the
+`ubuntu-latest` label happened to point at four days into a migration.
+
+1m 49s against 1m 21s for the unpinned run, both far inside
+`timeout-minutes: 10`.
+
+### Verdict
+
+**Correct, complete, and nothing to push back on.** The gate now names its own
+environment, the two deprecation warnings are cleared, and every property the
+gate was proved on this morning still holds on the pinned runner.
+
+### What this does and does not buy
+
+It converts a silent environment change into a scheduled one. It does **not**
+make the environment permanent: the `ubuntu-24.04` label will itself be retired,
+and when it is, this job fails loudly with an unknown-label error rather than
+quietly measuring a different filesystem. That is the trade, and it was taken
+deliberately.
+
+Unchanged and still open: **nothing guards this workflow file from being
+deleted.** M3's answer from brief 04 has not moved.
+
+Also unchanged: `actions/checkout` is at `v7.0.1`; this is pinned at `v5`,
+which clears the Node.js 20 deprecation and is two majors behind. That was the
+owner's decision and it is recorded rather than quietly "improved".
