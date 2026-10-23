@@ -142,3 +142,158 @@ that Steps 1 and 3 were narrowed by this brief, with the reason.
 <!-- Engineer: append here. What landed, what was measured, what you refuse to
 claim. Quote the failing test output, each mutation's result, and the pytest
 summary line. If you changed scope, say what and why. -->
+
+### ผลการทำงาน
+
+เพิ่ม `test_smoke_train_does_not_point_the_reader_at_a_hosted_notebook` ใน
+`tests/test_local_only.py` และแก้เฉพาะ module docstring ใน
+`scripts/smoke_train.py` ให้กล่าวถึงข้อจำกัดด้าน GPU และการรันฝึกโมเดลจริง
+โดยไม่ระบุบริการ hosted notebook
+
+ผลทดสอบครั้งแรกก่อนแก้ docstring (คัดลอกผลลัพธ์ตามที่รันได้):
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.6.0
+rootdir: D:\code-project\OmniAgent
+configfile: pyproject.toml
+plugins: anyio-4.15.1, platformdirs-4.12.2
+collected 1 item
+
+tests\test_local_only.py F                                               [100%]
+
+================================== FAILURES ===================================
+_______ test_smoke_train_does_not_point_the_reader_at_a_hosted_notebook _______
+
+    def test_smoke_train_does_not_point_the_reader_at_a_hosted_notebook() -> None:
+        """The manifest records an RTX 3050 Laptop GPU; standard 1 is local only."""
+        source_path = REPO_ROOT / "scripts" / "smoke_train.py"
+        source = source_path.read_text(encoding="utf-8")
+        offending = next(
+            (line.strip() for line in source.splitlines() if "colab" in line.lower()),
+            "",
+        )
+    
+>       assert "colab" not in source.lower(), f"{source_path} contains hosted notebook framing: {offending}"
+E       AssertionError: D:\code-project\OmniAgent\scripts\smoke_train.py contains hosted notebook framing: The notebook in ``notebooks/`` is meant for a Colab GPU and a real base model,
+E       assert 'colab' not in '"""run the ...it(main())\n'
+E         
+E         'colab' is contained here:
+E           ant for a colab gpu and a real base model,
+E         ?           +++++
+E           which cannot be exercised here. this script runs the same steps -- validate,
+E           load, lora-train, merge, generate -- small enough to finish on a laptop, so
+E           that an api change in transformers/trl/peft fails here rather than twenty...
+E         
+E         ...Full output truncated (179 lines hidden), use '-vv' to show
+E         
+E         ...
+E         
+E         tests\test_local_only.py:19: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_local_only.py::test_smoke_train_does_not_point_the_reader_at_a_hosted_notebook
+============================== 1 failed in 0.80s ==============================
+```
+
+Mutation checks:
+
+- **M1:** เติม `Colab` กลับใน docstring แล้วมีเพียง
+  `test_smoke_train_does_not_point_the_reader_at_a_hosted_notebook` ที่ล้ม
+  ผลรวม: `1 failed, 631 passed in 15.59s`.
+- **M2:** แทน body ของเทสต์ใหม่ด้วย `pass`; เทสต์ผ่าน (`1 passed in 0.04s`).
+- **M3:** แทรก `import google.colab` ใน code cell ของ notebook ชั่วคราว;
+  `tests/test_notebook.py::test_nothing_is_uploaded` ล้มเพียงตัวเดียว
+  (`1 failed, 23 passed in 0.90s`). คืน notebook จากสำเนา scratch แล้ว
+  และตรวจว่าไม่มี `import google.colab` ค้างอยู่
+
+การสร้าง notebook ซ้ำเขียน 24 cells แต่เปลี่ยนไฟล์ที่ commit ไว้:
+
+```text
+ notebooks/train_omniagent_lora.ipynb | 25 +------------------------
+ 1 file changed, 1 insertion(+), 24 deletions(-)
+```
+
+diff แสดงว่า generator ลบ `id` ของ cell ทั้งหมดและเพิ่ม `import json` ใน cell
+หนึ่ง จึงพบว่า notebook ที่ commit อยู่เดิมไม่ตรงกับ generator ตามเงื่อนไข
+หยุดใน brief ผมคืน notebook จากสำเนาเดิมและหยุดก่อน gates กับ commit ตามคำสั่ง
+ใน Step 5
+
+ยังไม่ได้รัน gates สุดท้ายหลังการแก้ docstring: ไม่มีผลสุดท้ายของ Ruff หรือ
+Mypy และยังไม่มีผล `632 passed` ให้ยืนยัน ไม่มี commit hash เพราะหยุดก่อน commit;
+ไม่ได้ push ครับ การรัน M1/M3 ที่ตรวจผลจริงกำหนด `--basetemp` ใต้
+`.pytest_cache` เพื่อหลีกเลี่ยงข้อผิดพลาดสร้าง pytest temp directory ใน
+environment นี้ ผลจากการลอง M1 ครั้งแรกที่ใช้ temp directory ปริยายไม่นับเป็น
+ผล mutation ที่ยืนยันได้
+
+---
+
+## PM verification, 2026-10-23
+
+Re-run by the project manager against the engineer's working tree. `git log`
+and the test output are the truth; the report above is a claim. Every figure
+below was produced by a command in this session, not read from the report.
+
+### Confirmed
+
+| Claim | How it was checked | Result |
+| --- | --- | --- |
+| The docstring keeps the five load-bearing facts | read `git diff scripts/smoke_train.py` | **holds.** CPU plus tiny model, the GPU/base-model contrast stated as *hardware*, the five steps, the API-change reason, the smoke-test caveat. The `Usage::` block is untouched, as instructed. |
+| The test is not parametrized and is typed | read `tests/test_local_only.py` | **holds.** One function, `REPO_ROOT` built with the `tests/test_shipped_config.py:25` idiom. |
+| M1 turns exactly one test red, and it is the new one | asserted `needs a real GPU` present, mutated it to `needs a Colab GPU`, ran the full suite, restored from a scratchpad copy | **`1 failed, 631 passed in 10.39s`** — confirmed |
+| M2 goes green | deleted line 19, the assert, ran the file, restored from a scratchpad copy | **`1 passed in 0.02s`** — confirmed, so M1's red came from that assert and nothing else |
+| `mypy` is clean | `.venv/Scripts/python.exe -m mypy` | **`Success: no issues found in 42 source files`** — 41 before, so the new file is in scope |
+| The suite is 632 | `.venv/Scripts/python.exe -m pytest` | **`632 passed in 9.28s`** — the predicted number, exactly |
+
+### Not confirmed — gate 1 is red
+
+```
+.venv/Scripts/python.exe -m ruff check .
+  --> tests/test_local_only.py:19:101
+Found 1 error.
+```
+
+Line 19 is 104 characters against a 100-character limit. The engineer said
+plainly that it never ran the gates, so nothing was misreported and nothing was
+committed over a red gate. The work is unfinished, not wrong.
+
+### The Step 5 stop was correct, and my instruction was partly wrong
+
+The regeneration diff is `1 insertion(+), 24 deletions(-)`. Taken apart:
+
+- **24 deletions are every one of `"id": <hex>,`** — nbformat cell
+  identifiers. The committed notebook carries them, the generator does not emit
+  them. Cosmetic, and not drift in any sense this project cares about.
+- **The single insertion is real: `"import json\n"`**, into the cell under
+  "## 9. Checksum and manifest". It is at `scripts/build_notebook.py:363`,
+  so the **generator** holds it and the **committed notebook** does not.
+  Neither side uses `json.` anywhere — `git show HEAD:notebooks/... | grep -c
+  'json\.'` returns 0 — so what drifted is an unused import, most likely
+  removed from the notebook alone. That is the trap this project has written
+  down twice: an edit to the notebook and not to its generator.
+
+**My Step 5 instruction, "`git diff` must report no change", was too strict.**
+It counts nbformat cell ids as drift. The engineer applied it exactly as
+written and stopped, which is the right behaviour for an instruction it was
+given; the stop is mine, not its error. A correct version compares cell
+*sources*, not the serialised file.
+
+### A finding worth more than this brief
+
+`tests/test_notebook.py:264 test_the_notebook_and_its_generator_agree` cannot
+catch this. It walks a fixed `GENERATED_GUARANTEES` list and asserts each
+snippet is present in both files. A line the generator gained and the notebook
+never received is invisible to it, because no guarantee names that line. It is
+a substring expectation grading characters, not answers, guarding the exact
+failure mode this repository's trap list calls out first. It has been green
+through all of this.
+
+Restoring: the notebook was copied to the scratchpad before regeneration and
+restored from that copy. SHA-256 before and after both
+`fa3c90ed3e5e314cfffdf7dd97c514811341ed590c7c7711756a4c22a54e2670`.
+`git status` shows it unmodified.
+
+### What remains before this can be committed
+
+One line wrapped under 100 characters in `tests/test_local_only.py:19`, then
+the three gates re-run. Nothing else. The notebook question is a separate task
+and must not be folded into this commit.
