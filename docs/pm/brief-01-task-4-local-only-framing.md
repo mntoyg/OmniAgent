@@ -43,7 +43,8 @@ four files:
 ## Files you may touch
 
 - Modify: `scripts/smoke_train.py` (module docstring only)
-- Modify: `tests/test_local_only.py` (add one test)
+- **Create**: `tests/test_local_only.py` — measured 2026-10-23, the file does
+  not exist. The plan's Task 4 lists it under "Test:" as though it did.
 - Regenerate: `notebooks/train_omniagent_lora.ipynb` — **only** via
   `.venv/Scripts/python.exe scripts/build_notebook.py`. Editing the notebook by
   hand is work that disappears on the next regeneration.
