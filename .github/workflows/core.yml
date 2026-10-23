@@ -14,12 +14,13 @@ permissions:
 
 jobs:
   native:
-    runs-on: ubuntu-latest
+    # Pin Ubuntu because /tmp filesystem type is enforced by local_file.cpp; ubuntu-latest is migrating to Ubuntu 26.
+    runs-on: ubuntu-24.04
     # Local Ubuntu WSL: configure 12s + build 96s = 108s; 10m allows slower CI and checkout.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: ggml-org/llama.cpp
           ref: 869034b4bb93a425ea989d30fc3d000f5a461d58
