@@ -37,3 +37,6 @@ omniagent.local.toml
 # Trained models, adapters, GGUF and the llama.cpp checkout
 models/
 .superpowers/
+
+# Native offline inference core build artifacts
+omniagent-core/build*/
