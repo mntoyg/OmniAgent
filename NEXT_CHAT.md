@@ -761,12 +761,29 @@ generator holding them made them reachable. Every one was found by that test
 and none by review. **Expect the next file that mentions a demo question to do
 it too.**
 
-### Next: Task 4, the last one in the plan
+### ~~Next: Task 4, the last one in the plan~~ -- DONE 2026-10-23, `675e0de`
 
 The user wants to record a how-to video and then open the repository so others
 can clone it. V1 is done. V2 is the demo order and the exact commands to type
 on screen; `docs/demo-script.md` already holds a measured five-question
 sequence that works on the demo path, 60/60 over twelve runs.
+
+**The plan `docs/superpowers/plans/2026-10-06-train-and-deploy.md` is complete.**
+Tasks 1-4 all done; Task 4 landed in `675e0de` on 2026-10-23. Measured by the
+project manager on the committed state, not read from a report: `ruff check .`
+**All checks passed**, `mypy` **clean over 42 source files** (41 before), and
+`pytest` ~~631~~ **632 passed in 10.35s**. Mutation M1 -- putting the word back
+into the docstring -- gives **1 failed, 631 passed** with exactly the new test
+red, re-run after the assert was wrapped in parentheses, which is how it is
+known the assert did not become an always-true tuple.
+
+Three errors in the plan's own Task 4 section were found by searching before
+writing the brief, and are recorded in the plan: `README.md` was listed as a
+file to modify and contains no occurrence of the string; `build_notebook.py`
+was listed when its sentence is correct as written; and
+`tests/test_local_only.py` was listed as an existing test file when it did not
+exist.
+
 
 ## Traps already paid for once
 

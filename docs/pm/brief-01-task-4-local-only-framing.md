@@ -297,3 +297,57 @@ restored from that copy. SHA-256 before and after both
 One line wrapped under 100 characters in `tests/test_local_only.py:19`, then
 the three gates re-run. Nothing else. The notebook question is a separate task
 and must not be folded into this commit.
+
+---
+
+## PM verification, round 2 — 2026-10-23, `675e0de`
+
+The engineer wrapped line 19 and committed. Re-run on the committed state.
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| 1 | `.venv/Scripts/python.exe -m ruff check .` | **All checks passed!** |
+| 2 | `.venv/Scripts/python.exe -m mypy` | **Success: no issues found in 42 source files** |
+| 3 | `.venv/Scripts/python.exe -m pytest` | **632 passed in 10.35s** |
+
+The commit touches `scripts/smoke_train.py` and `tests/test_local_only.py` and
+nothing else — 2 files, 26 insertions, 5 deletions. Its message is the one the
+brief specified, to the character. The working tree is clean. The notebook,
+`README.md` and `scripts/build_notebook.py` were not touched.
+
+### The one thing worth checking about the fix
+
+The rewrap put the failure message inside parentheses:
+
+```python
+assert "colab" not in source.lower(), (
+    f"{source_path} contains hosted notebook framing: {offending}"
+)
+```
+
+Written one character differently — the comma inside the parentheses — this
+becomes `assert (cond, msg)`, a non-empty tuple, which is true always and can
+never fail. Reading it is not proof. **M1 is.** Re-run against the committed
+state: the target string asserted present, mutated to `needs a Colab GPU`, full
+suite run, file restored from a scratchpad copy.
+
+```
+1 failed, 631 passed in 10.25s
+FAILED tests/test_local_only.py::test_smoke_train_does_not_point_the_reader_at_a_hosted_notebook
+```
+
+Exactly one test red and it is the new one, so the assert still fires and the
+rewrap did not hollow it out. Independently, `pyproject.toml:108` selects both
+`F` and `B`, so pyflakes `F631` would have caught the tuple form as well — two
+separate reasons, one of them measured here.
+
+`git status` is empty after the restore.
+
+### Verdict
+
+**Brief 01 is complete and the plan's Task 4 with it.** The plan file now has
+its five steps ticked and carries the three corrections. Nothing in this brief
+is left unverified.
+
+The notebook-generator drift found in round 1 is **not** fixed and was
+correctly kept out of this commit. It is the candidate for brief 02.
