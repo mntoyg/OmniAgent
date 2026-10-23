@@ -328,3 +328,91 @@ run a WSL build; nothing established that before the work was assigned.
 engineer can run one**, and if it cannot, the brief is split: the engineer makes
 the change, the manager produces the evidence, and both halves are named up
 front instead of discovered at the end.
+
+---
+
+## Hosted evidence — the first run of `core.yml` on GitHub
+
+Branch pushed to `origin` at `efedca2`. Run
+[39927752691](https://github.com/mntoyg/OmniAgent/actions/runs/39927752691),
+job `native`, **success in 1m 21s**. Every step green: both checkouts, verify
+header, verify CRLF is refused, record fixture filesystem, configure, build,
+verify test inventory, test.
+
+Runner image: `ubuntu24/20261012.334`.
+
+### The three things only a hosted run could settle
+
+**1. The LF fingerprint matches a real GitHub checkout.**
+
+```
+Verify llama.cpp header: models/llama.cpp/include/llama.h: OK
+```
+
+`actions/checkout` of `ggml-org/llama.cpp` at the pinned commit produces a
+header hashing to `d5cf9203…`. Brief 05's premise is confirmed on the platform
+that matters, not inferred from a `git archive` locally.
+
+**2. The fingerprint's refusal fires on the runner, for the right reason.**
+
+```
+Verify CRLF is refused:
+  canonical LF.  CRLF may result from core.autocrlf=true or reading a Windows
+  checkout through /mnt.
+```
+
+The step configures against a deliberately CRLF-ed copy, requires `cmake` to
+fail, and then greps the log for the cause. Both halves held. **The gate's
+central check has now been observed refusing something in the environment it
+runs in** — which is the difference between a gate and a decoration.
+
+**3. The runner's temporary filesystem is in the allowlist.**
+
+```
+Fixture /tmp filesystem = ext2/ext3 (magic 0xef53)
+```
+
+`0xef53` is `EXT4_SUPER_MAGIC`. `src/local_file.cpp:19-25` allows it, which is
+why `core` can load the fixture that `tests/core_tests.cpp:63` copies to `/tmp`.
+This was the open question from brief 04 and it is now answered on the hosted
+runner rather than standing on local WSL evidence.
+
+### The tests, on the runner
+
+```
+1/4 Test #1: make_tiny_gguf ... Passed   0.03 sec
+2/4 Test #2: core ............. Passed   0.12 sec
+3/4 Test #3: secure_heap ...... Passed   0.00 sec
+4/4 Test #4: offline_imports .. Passed   0.05 sec
+100% tests passed, 0 tests failed out of 4
+Total Test time (real) = 0.22 sec
+```
+
+The measured `timeout-minutes: 10` has ample headroom: the whole job is 1m 21s
+against a local estimate of 108s for configure plus build alone.
+
+### Two warnings the run raised, and one of them matters
+
+- `actions/checkout@v4` targets Node.js 20, which is deprecated and is being
+  forced onto Node.js 24. A warning today; it will stop working. Bumping to
+  `@v5` is a one-line change and is **not** done here.
+- **`ubuntu-latest` begins migrating to Ubuntu 26 on 2026-10-19 — four days
+  ago.** This run landed on `ubuntu24/20261012.334`, so it has not migrated
+  yet. **That matters more than it looks:** this gate's correctness depends on
+  the runner's `/tmp` being a type `src/local_file.cpp` allows, and a runner
+  image change can alter that without anything in this repository changing. The
+  evidence above is true of Ubuntu 24 and is not a standing guarantee.
+
+  Pinning `runs-on: ubuntu-24.04` would make the gate's environment explicit
+  instead of floating. That is a decision, not a correction, and it is the
+  obvious next piece of work on this workflow.
+
+### Status of `omniagent-core` after this run
+
+| | |
+| --- | --- |
+| gated | yes — four `ctest` targets, on every push touching `omniagent-core/**` |
+| the gate can fail | demonstrated: C1, C2, M1, M2 locally, and the CRLF refusal on the runner |
+| builds from a clean Linux checkout | **yes**, as of `52c3b11`. It could not before. |
+| what still guards the gate file itself | nothing. M3's honest answer, unchanged. |
+| hosted evidence | run 39927752691, Ubuntu 24, 4/4 passed |
