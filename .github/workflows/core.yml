@@ -1,0 +1,66 @@
+name: core
+
+on:
+  push:
+    branches: [main, core-offline-runtime]
+    paths: ["omniagent-core/**", ".github/workflows/core.yml"]
+  pull_request:
+    branches: [main, core-offline-runtime]
+    paths: ["omniagent-core/**", ".github/workflows/core.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    # Local Ubuntu WSL: configure 12s + build 96s = 108s; 10m allows slower CI and checkout.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          ref: 869034b4bb93a425ea989d30fc3d000f5a461d58
+          path: models/llama.cpp
+      - name: Reproduce the fingerprint's line endings
+        shell: bash
+        run: |
+          # The supplied fingerprint was measured on a Windows CRLF checkout.
+          # Normalize only line endings; the next step verifies every resulting byte.
+          python3 - <<'PY'
+          from pathlib import Path
+          header = Path("models/llama.cpp/include/llama.h")
+          header.write_bytes(header.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+          PY
+      - name: Verify llama.cpp header
+        shell: bash
+        run: |
+          echo 'edea14f935e2729d157e063b1ebdde3deeca9714389aaf0d5a20424b6b98a5ff  models/llama.cpp/include/llama.h' | sha256sum --check --strict || {
+            echo '::error::Pinned llama.cpp header fingerprint mismatch.'
+            exit 1
+          }
+      - name: Record fixture filesystem
+        run: stat -f -c 'Fixture /tmp filesystem = %T (magic 0x%t)' /tmp
+      - name: Configure fresh Release build
+        run: |
+          test ! -e omniagent-core/build
+          cmake -S omniagent-core -B omniagent-core/build -DCMAKE_BUILD_TYPE=Release -DOMNI_BUILD_TESTS=ON
+      - name: Build
+        run: cmake --build omniagent-core/build --parallel
+      - name: Verify test inventory
+        shell: bash
+        run: |
+          ctest --test-dir omniagent-core/build --show-only=json-v1 > "$RUNNER_TEMP/core-tests.json"
+          python3 - "$RUNNER_TEMP/core-tests.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          names = {test["name"] for test in json.loads(Path(sys.argv[1]).read_text())["tests"]}
+          expected = {"make_tiny_gguf", "core", "secure_heap", "offline_imports"}
+          if names != expected:
+              raise SystemExit(f"Core test inventory mismatch: {names!r}")
+          PY
+      - name: Test
+        run: ctest --test-dir omniagent-core/build --output-on-failure --no-tests=error

@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -84,6 +85,13 @@ int main(int argc, char** argv) {
     CHECK(engine.load("/tmp//model.gguf") == Error::invalid_path);
     CHECK(engine.load(std::string_view("/tmp/\0model", 11)) == Error::invalid_path);
     CHECK(engine.load("C:\\model.gguf") == Error::invalid_path);
+    // Both model and audit boundaries reject each path syntax class.
+    for (const std::string_view path : {"", "/", "relative", "/tmp/./model.gguf",
+             "/tmp/a\\b", "/tmp/a:b", "/tmp/", "/tmp//model.gguf"}) {
+        CHECK(omniagent::detail::open_local_file(path, false, config.max_model_bytes).error == Error::invalid_path);
+        CHECK(omniagent::detail::open_local_file(path, true, 0).error == Error::invalid_path);
+    }
+    CHECK(engine.load("/proc/version") == Error::invalid_path);
     CHECK(engine.load("/dev/zero") == Error::invalid_path);
     fs::create_symlink(model, root / "link.gguf");
     CHECK(engine.load((root / "link.gguf").string()) == Error::io);
@@ -96,6 +104,11 @@ int main(int argc, char** argv) {
     CHECK(!engine.loaded());
     auto invalid = config; invalid.context_tokens = UINT32_MAX;
     CHECK(LocalInferenceEngine(invalid).load(model) == Error::invalid_config);
+    for (const auto threads : {0U, 257U}) {
+        auto bad_threads = config;
+        bad_threads.threads = threads;
+        CHECK(LocalInferenceEngine(bad_threads).load(model) == Error::invalid_config);
+    }
     auto small = config; small.max_model_bytes = 24;
     CHECK(LocalInferenceEngine(small).load(model) == Error::model_too_large);
 
@@ -114,6 +127,10 @@ int main(int argc, char** argv) {
     output.fill('X');
     CHECK(engine.generate("a", 3, std::span<char>(output.data(), 1)).error == Error::output_limit);
     CHECK(output[0] == 0);
+    // Overflow after partial output must erase the entire supplied span.
+    std::array<char, 2> partial {'X', 'X'};
+    CHECK(engine.generate("a", 3, partial).error == Error::output_limit);
+    CHECK(std::all_of(partial.begin(), partial.end(), [](char c) { return c == 0; }));
     CHECK(omniagent::EngineTestAccess::clean(engine));
     output.fill('X');
     CHECK(engine.generate("a", 64, output).error == Error::context_limit);
@@ -145,9 +162,27 @@ int main(int argc, char** argv) {
       CHECK(content.find("status=0 bytes=3 tokens=3") != content.npos);
       CHECK(content.find("aaa") == content.npos && content.find("0x") == content.npos);
       CHECK(content.find(model) == content.npos); }
-    CHECK(chmod(log.c_str(), 0644) == 0);
-    CHECK(engine.load(model, log) == Error::invalid_path);
-    CHECK(!engine.loaded());
+    {
+        std::ifstream audit(log);
+        std::string line;
+        std::size_t records = 0;
+        while (std::getline(audit, line)) {
+            unsigned status = 0, tokens = 0;
+            std::size_t bytes = 0;
+            int consumed = 0;
+            CHECK(std::sscanf(line.c_str(), "status=%u bytes=%zu tokens=%u%n",
+                &status, &bytes, &tokens, &consumed) == 3);
+            CHECK(consumed == static_cast<int>(line.size()));
+            CHECK(status <= static_cast<unsigned>(Error::log_io));
+            ++records;
+        }
+        CHECK(records > 40); // Older records survived subsequent writes.
+    }
+    for (const auto permissions : {0640, 0604}) {
+        CHECK(chmod(log.c_str(), permissions) == 0);
+        CHECK(engine.load(model, log) == Error::invalid_path);
+        CHECK(!engine.loaded());
+    }
     fs::create_hard_link(log, root / "log-alias");
     CHECK(chmod(log.c_str(), 0600) == 0);
     CHECK(engine.load(model, log) == Error::invalid_path);
@@ -180,6 +215,7 @@ int main(int argc, char** argv) {
     while (!finished) { long_engine.cancel(); std::this_thread::yield(); }
     generator.join();
     CHECK(cancelled.error == Error::cancelled);
+    CHECK(omniagent::EngineTestAccess::clean(long_engine));
     CHECK(wiped(output));
     CHECK(long_engine.generate("a", 3, output).error == Error::none);
     CHECK(omniagent::EngineTestAccess::clean(long_engine));
@@ -206,24 +242,27 @@ int main(int argc, char** argv) {
     CHECK(omniagent::EngineTestAccess::clean(engine));
     CHECK(engine.unload() == Error::log_io);
     // Fatal backend diagnostics must not print even a deliberately supplied address.
-    int diagnostic_pipe[2];
-    CHECK(pipe(diagnostic_pipe) == 0);
-    const auto child = fork();
-    CHECK(child >= 0);
-    if (child == 0) {
-        close(diagnostic_pipe[0]);
-        CHECK(dup2(diagnostic_pipe[1], STDERR_FILENO) >= 0);
-        CHECK(dup2(diagnostic_pipe[1], STDOUT_FILENO) >= 0);
+    for (const bool terminate : {false, true}) {
+        int diagnostic_pipe[2];
+        CHECK(pipe(diagnostic_pipe) == 0);
+        const auto child = fork();
+        CHECK(child >= 0);
+        if (child == 0) {
+            close(diagnostic_pipe[0]);
+            CHECK(dup2(diagnostic_pipe[1], STDERR_FILENO) >= 0);
+            CHECK(dup2(diagnostic_pipe[1], STDOUT_FILENO) >= 0);
+            close(diagnostic_pipe[1]);
+            if (terminate) { std::terminate(); }
+            ggml_abort("PRIVATE_PATH", 123, "private prompt and addr=%p", static_cast<void*>(&engine));
+        }
         close(diagnostic_pipe[1]);
-        ggml_abort("PRIVATE_PATH", 123, "private prompt and addr=%p", static_cast<void*>(&engine));
+        char diagnostic[128];
+        CHECK(read(diagnostic_pipe[0], diagnostic, sizeof(diagnostic)) == 0);
+        close(diagnostic_pipe[0]);
+        int child_status = 0;
+        CHECK(waitpid(child, &child_status, 0) == child);
+        CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 70);
     }
-    close(diagnostic_pipe[1]);
-    char diagnostic[128];
-    CHECK(read(diagnostic_pipe[0], diagnostic, sizeof(diagnostic)) == 0);
-    close(diagnostic_pipe[0]);
-    int child_status = 0;
-    CHECK(waitpid(child, &child_status, 0) == child);
-    CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 70);
     for (unsigned code = 0; code <= static_cast<unsigned>(Error::log_io); ++code) {
         CHECK(omniagent::error_message(static_cast<Error>(code)).size() < 64);
     }

@@ -58,7 +58,9 @@ int main() {
     if (preserved == nullptr) { return 6; }
     fill_allocation(preserved, 0xB1);
     volatile std::size_t impossible_size = std::numeric_limits<std::size_t>::max();
-    if (__wrap_realloc(preserved, impossible_size) != nullptr || preserved[0] != 0xB1) { return 7; }
+    if (__wrap_realloc(preserved, impossible_size) != nullptr ||
+        !std::all_of(preserved, preserved + malloc_usable_size(preserved),
+            [](auto byte) { return byte == 0xB1; })) { return 7; }
     std::free(preserved);
     observe = false;
     if (failures != 0 || releases < 5) { return 5; }
