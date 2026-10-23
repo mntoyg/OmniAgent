@@ -18,10 +18,7 @@ ctest --test-dir omniagent-core/build --output-on-failure --no-tests=error
 ```
 
 The default dependency directory is `models/llama.cpp`. The API fingerprint
-expects the CRLF representation of `include/llama.h`, SHA256
-`edea14f935e2729d157e063b1ebdde3deeca9714389aaf0d5a20424b6b98a5ff`.
-The CI workflow converts LF to CRLF before checking this fingerprint. It is
-not verification of the complete dependency source; supply a trusted checkout.
+expects the canonical LF header, SHA256 `d5cf9203bea63b575e76cba4881f29cfd1b611451578b01582b75b72ecbb04bc`. CRLF working trees are refused: `core.autocrlf=true` or reading a Windows checkout through `/mnt` changes the bytes. This is not verification of the complete dependency source; supply a trusted checkout.
 For a build without test executables, pass `-DOMNI_BUILD_TESTS=OFF`.
 Link applications with the `omniagent_core` CMake target. Use a dedicated
 inference process; do not combine it with another allocator, llama.cpp

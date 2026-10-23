@@ -13,8 +13,8 @@ if(NOT EXISTS "${LLAMA_SOURCE_DIR}/include/llama.h")
     message(FATAL_ERROR "Provide a local llama.cpp checkout with -DLLAMA_SOURCE_DIR=...; this build never downloads it")
 endif()
 file(SHA256 "${LLAMA_SOURCE_DIR}/include/llama.h" LLAMA_API_HASH)
-if(NOT LLAMA_API_HASH STREQUAL "edea14f935e2729d157e063b1ebdde3deeca9714389aaf0d5a20424b6b98a5ff")
-    message(FATAL_ERROR "Unsupported llama.cpp API: use commit 869034b4bb93a425ea989d30fc3d000f5a461d58")
+if(NOT LLAMA_API_HASH STREQUAL "d5cf9203bea63b575e76cba4881f29cfd1b611451578b01582b75b72ecbb04bc")
+    message(FATAL_ERROR "Unsupported llama.cpp header: computed ${LLAMA_API_HASH}; expected canonical LF. CRLF may result from core.autocrlf=true or reading a Windows checkout through /mnt.")
 endif()
 
 # No common library, tools, server, app, RPC, dynamic plugins or downloads.

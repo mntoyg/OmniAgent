@@ -24,23 +24,26 @@ jobs:
           repository: ggml-org/llama.cpp
           ref: 869034b4bb93a425ea989d30fc3d000f5a461d58
           path: models/llama.cpp
-      - name: Reproduce the fingerprint's line endings
-        shell: bash
-        run: |
-          # The supplied fingerprint was measured on a Windows CRLF checkout.
-          # Normalize only line endings; the next step verifies every resulting byte.
-          python3 - <<'PY'
-          from pathlib import Path
-          header = Path("models/llama.cpp/include/llama.h")
-          header.write_bytes(header.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
-          PY
       - name: Verify llama.cpp header
         shell: bash
         run: |
-          echo 'edea14f935e2729d157e063b1ebdde3deeca9714389aaf0d5a20424b6b98a5ff  models/llama.cpp/include/llama.h' | sha256sum --check --strict || {
+          echo 'd5cf9203bea63b575e76cba4881f29cfd1b611451578b01582b75b72ecbb04bc  models/llama.cpp/include/llama.h' | sha256sum --check --strict || {
             echo '::error::Pinned llama.cpp header fingerprint mismatch.'
             exit 1
           }
+      - name: Verify CRLF is refused
+        shell: bash
+        run: |
+          temp=$(mktemp -d)
+          trap 'rm -rf "$temp"' EXIT
+          mkdir -p "$temp/llama/include"
+          python3 - "$temp/llama/include/llama.h" <<'PY'
+          from pathlib import Path
+          import sys
+          Path(sys.argv[1]).write_bytes(Path("models/llama.cpp/include/llama.h").read_bytes().replace(b"\n", b"\r\n"))
+          PY
+          if cmake -S omniagent-core -B "$temp/build" -DLLAMA_SOURCE_DIR="$temp/llama" >"$temp/log" 2>&1; then exit 1; fi
+          grep -E 'CRLF|core.autocrlf=true|/mnt' "$temp/log"
       - name: Record fixture filesystem
         run: stat -f -c 'Fixture /tmp filesystem = %T (magic 0x%t)' /tmp
       - name: Configure fresh Release build
