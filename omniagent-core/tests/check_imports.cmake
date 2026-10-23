@@ -1,0 +1,10 @@
+execute_process(COMMAND "${NM}" -u "${BINARY}"
+    RESULT_VARIABLE status OUTPUT_VARIABLE imports ERROR_VARIABLE failure)
+if(NOT status EQUAL 0)
+    message(FATAL_ERROR "Cannot inspect runtime imports")
+endif()
+set(forbidden "socket|socketpair|connect|accept|accept4|bind|listen|send|sendto|sendmsg|recv|recvfrom|recvmsg|getaddrinfo|getnameinfo|dlopen|dlsym|curl_[A-Za-z0-9_]+|SSL_[A-Za-z0-9_]+")
+if(imports MATCHES "[ \t]U[ \t]+(${forbidden})(@|\n)")
+    message(FATAL_ERROR "Runtime imports a forbidden networking or dynamic-loading function")
+endif()
+message(STATUS "No networking or dynamic-loading imports")
