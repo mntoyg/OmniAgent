@@ -434,3 +434,110 @@ ef2ab18 ci(core): a fourth gate that builds the native runtime and runs its test
 `git diff --exit-code cfbde93 HEAD -- omniagent-core/src omniagent-core/include` returned 0. The commit contains no runtime source or header changes. The separate report commit adds only this brief with this Result section.
 
 I refuse to claim: a hosted `ubuntu-latest` run or its actual temporary-filesystem type; protection against someone deleting the gate; complete absence of networking merely from imports; byte-complete backend KV/weight erasure or tracing every backend allocation; guaranteed cancellation after a completed partial batch; all-platform fail-closed behavior; or full dependency-source authenticity from a single header fingerprint. These are explicit limits, not green checks. The branch remains local and unpushed for the project manager.
+
+---
+
+## PM verification — 2026-10-23, `ef2ab18`
+
+Re-run, not read. The engineer's report is a claim; what follows was produced
+by commands in this session.
+
+### I built it and tested it myself
+
+In WSL Ubuntu, a fresh build directory on ext4, source from this worktree,
+dependency from the main checkout:
+
+```
+configure: 5 s
+build: 82 s
+1/4 make_tiny_gguf ... Passed   0.06 sec
+2/4 core ............. Passed   0.12 sec
+3/4 secure_heap ...... Passed   0.00 sec
+4/4 offline_imports .. Passed   0.02 sec
+100% tests passed, 0 tests failed out of 4
+```
+
+Toolchain: cmake 3.28.3, g++ 13.3.0 (Ubuntu 13.3.0), Python 3.12.3. **This
+replaces the 2026-10-11 log as the current evidence for this code.** The
+engineer measured 12 s + 96 s; I measured 5 s + 82 s building to `/tmp`
+instead of `/mnt/d`, which is the difference.
+
+`/tmp` in the local distribution is `ext2/ext3 magic 0xef53`, which is
+`EXT4_SUPER_MAGIC`. That matches the `ef53` in the report and it is why `core`
+passes: `tests/core_tests.cpp:63` copies the fixture there before loading it.
+
+### Scope held
+
+`git diff cfbde93 79167c1 --name-only` filtered for
+`omniagent-core/(src|include)/` returns **nothing**. The four files touched are
+`core.yml`, the core README, `core_tests.cpp` and `secure_heap_tests.cpp`.
+`main` is untouched and clean, and its three gates are green on
+**633 passed**, `ruff` clean, `mypy` clean over 42 files — unchanged, as
+required.
+
+### The fingerprint finding is real, and I proved it a second way
+
+The report's "important measured correction" is correct and it is the most
+consequential thing found today. Measured here:
+
+| Form of `include/llama.h` | SHA256 |
+| --- | --- |
+| the local working tree, a Windows checkout with `core.autocrlf=true` | `edea14f9…a5ff` — **what `CMakeLists.txt:16` demands** |
+| the canonical git blob, i.e. what any Linux checkout holds | `d5cf9203bea63b575e76cba4881f29cfd1b611451578b01582b75b72ecbb04bc` |
+
+Prediction written before the run: the LF header hashes to `d5cf9203…`, which
+is not the demanded value, so the check must refuse. Replaying
+`CMakeLists.txt` lines 15–18 verbatim against the canonical blob:
+
+```
+-- computed: d5cf9203bea63b575e76cba4881f29cfd1b611451578b01582b75b72ecbb04bc
+CMake Error: Unsupported llama.cpp API: use commit 869034b4bb93a425ea989d30fc3d000f5a461d58
+```
+
+**The fingerprint refuses the canonical form of the exact commit it names, and
+tells the reader to use the commit they already have.** The pin is an artefact
+of one Windows working tree, not of upstream. The 2026-10-11 build passed only
+because WSL read `/mnt/d`, which carries the CRLF copy — which is also why my
+own build above passed.
+
+So `omniagent-core` as committed **cannot be configured from a clean checkout
+on the only platform it supports.** That is a defect in the code, not in the
+gate, and the engineer was right to report it rather than fix it.
+
+### Better than the brief asked for
+
+- `ctest --no-tests=error`, so an empty test set fails instead of passing.
+- A **test-inventory step** asserting the names are exactly
+  `make_tiny_gguf`, `core`, `secure_heap`, `offline_imports`. The brief did not
+  ask for this and it answers part of M6: a target that silently disappears is
+  now caught. A deleted workflow file still is not.
+- `test ! -e omniagent-core/build` before configuring, forcing a fresh build.
+- `timeout-minutes` justified in a comment by the measurement behind it.
+- An empty-test-directory control returning exit 8 rather than green.
+- M2 turned up something the brief did not anticipate: the existing test
+  binaries still pass 4/4 without rebuilding after the header changes, which is
+  why testing a stale build directory proves nothing.
+
+### What is not established, and the report says so
+
+- **The workflow has never run on `ubuntu-latest`.** The branch is unpushed, so
+  every statement about the hosted runner — including its temporary
+  filesystem's type, which `src/local_file.cpp:19-25` makes part of the gate —
+  is local WSL evidence standing in for hosted evidence. The report refuses to
+  claim otherwise, correctly.
+- Nothing protects the gate itself from being deleted.
+- A single header fingerprint is not dependency authenticity, and the README
+  still says so.
+
+### The one thing I would push back on
+
+The workflow step that rewrites `include/llama.h` to CRLF **before** verifying
+its checksum. Content equality is still enforced afterwards, the step is
+commented, and the README now documents the CRLF expectation — so nothing is
+hidden. But a security gate that normalizes its dependency's bytes before
+fingerprinting them is the wrong shape for the job, and the defect it works
+around stays in place for every human who clones this branch.
+
+It is not the engineer's call to change `CMakeLists.txt`, and the brief did not
+grant it. The fingerprint's value is the owner's decision, and it is on the
+table as a lettered choice.
