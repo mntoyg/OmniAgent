@@ -319,3 +319,46 @@ before the other nine are started.
 
 Total to beat: `omniagent-v2` scored **12/16 over ten runs with zero variance**
 on the previous question set.
+
+### Run 1 — the probe, read before the other nine started
+
+**The new question passed: `ANSWER OK | TOOL OK`**, in three steps, with
+`list_directory` called first. The agent's reply named the subdirectory
+**including the trailing slash**, quoting it as the listing renders it.
+
+**So the slash risk I predicted did not materialise on this run.** The
+prediction stands as written and was wrong about the outcome, which is the
+point of writing it down: the model echoes the tool's own rendering rather than
+paraphrasing the name. Whether that holds across ten runs is what the remaining
+nine are for — one run cannot retire a risk, and if even one run answers
+without the slash, the expectation loses its trailing character.
+
+Run 1 totals: **11/16 correct, 5/7 tool pick, 5/5 follow-up, 1/1 honest, 57
+steps, 363 s.**
+
+### The 12/16 figure is not a comparable baseline, and I am not treating it as one
+
+`NEXT_CHAT.md` records `omniagent-v2` at **12/16 over ten runs with zero
+variance**. That was measured on 2026-10-07. Since then: brief 01 added a
+tracked file, brief 02 changed `scripts/build_notebook.py`, and this brief
+replaced a question. **Three of the things the question set asks about have
+moved, so 11 against 12 is not a regression — it is the first measurement of a
+different set.** This set gets its own ten-run baseline, which is what these
+runs produce.
+
+The five wrong answers in run 1, with what is already known about each:
+
+| Expectation | Status |
+| --- | --- |
+| `4740` | `NEXT_CHAT.md` item 5 — **documented 0/10**, reproducible, the only pure-capability failure |
+| the last line of `scripts/build_notebook.py` | the agent refused the file as too long and chose `read_file` over `file_info`; the same shape as before this brief |
+| `agent.budget.exhausted` | `NEXT_CHAT.md` item 6 — **documented as needing replacement, not repair**, since its subject file documents past failures in three places |
+| `50` | new to me; ten runs will say whether it is stable |
+| `512` | tool axis OK, answer wrong; ten runs will say whether it is stable |
+
+One session also ran out of reasoning steps with nine tool calls and no
+checkable expectation.
+
+**Runs 2 to 10 are running as a single sequential command** — one at a time,
+never two, because the card is 4 GB. At 363 s each that is about 55 minutes,
+not the 90 the notes estimated from 544 s.
