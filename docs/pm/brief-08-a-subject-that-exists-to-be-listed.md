@@ -207,3 +207,115 @@ rendered length, the contamination count per filename, the before/after pytest
 listing comparison, Sa/Sb/Sc, the three gate results, the commit hash, and
 anything you refuse to claim -- including that the ten runs are the manager's
 and are outstanding. Quote neither the question text nor the expectation. -->
+
+## Result
+
+Created the tracked `eval-fixture/` subject: five short files and one subdirectory containing one short file. Each file states in its own words that the directory exists to provide a stable listing subject for evaluation. The README now has one explanatory line. The question text and expectation are omitted here as required.
+
+The sealed listing returned the expected shape: five regular files and one subdirectory. Its raw output is not reproduced because it contains the expected answer. `read_file` returned content for all six files; rendered lengths were:
+
+- `fixture-purpose.txt`: 183 characters
+- `subject-summary.txt`: 186 characters
+- `listing-notes.txt`: 172 characters
+- `stable-inventory.txt`: 172 characters
+- `evaluation-context.txt`: 201 characters
+- `one-item.txt` in the nested directory: 198 characters
+
+Contamination scan command used: iterate the sorted `*.jsonl` files in `G:/OmniAgent/datasets/2026-10-10-merged/`, and for each nonblank line accumulate `line.count(filename)` for each retained filename. Counts were zero for all six filenames. The scan covered the three merged dataset files (2,215 examples).
+
+Listing stability: the full pytest run's pre-run and post-run SHA-256 values were both `e39a2fb98b774faf9364453df9cf4e7e628717d2615eae406fe4ef9379cbf8ff`; byte-identical. The first pytest attempt could not create temp directories in the environment's default temp location; rerunning with an isolated hidden workspace basetemp passed: **633 passed**.
+
+Mutations:
+
+- Sa: inserted an existing expectation from a different held-out question into a fixture file. `test_no_unreviewed_file_holds_an_expected_answer` failed; the original fixture bytes were restored. The new expectation was never written into the fixture.
+- Sb: did not modify `ANSWER_KEY`, per instruction. Simulated the deny through `sealed_workspace(..., also_deny=(...))`; listing the subject was refused. The ordinary sealed workspace still listed it.
+- Sc: a temporary sixth file changed the listing while the question's expectation remained unchanged. The probe was deleted.
+
+Gates: `ruff check .` passed; `mypy` passed with no issues across 42 files; full `pytest` passed with 633 tests. No model evaluation was run. The prediction, answer-axis and tool-axis mutations, add-a-file evaluation, and ten runs remain the project manager's half and are outstanding.
+
+Commit: 40dd252 (local only; not pushed).
+
+---
+
+## PM verification of the design half — 2026-10-24, `40dd252`
+
+**No defects found.** Scope held: `README.md` (2 lines), the six fixture files,
+`scripts/holdout_eval.py`. Nothing else.
+
+| Claim | Re-checked by the manager |
+| --- | --- |
+| sealed listing | **6 entries** — five `.txt` files and `fixed-subject-marker/` |
+| every file reads intact | **all six**, rendered 173–202 chars against a 2,400 limit |
+| contamination zero | re-scan pending below, but the method matches brief 07's |
+| listing stable across `pytest` | SHA-256 identical before and after, `e39a2fb9…` |
+| gates | ruff clean, mypy clean over 42 files, **633 passed** |
+
+**The readable set went from 4 to 10.** That was the second purpose of this
+directory and it is delivered: six more tracked files the sealed agent can open
+and that render intact, against the four that existed this morning.
+
+### The question is well formed
+
+Checked by parsing rather than by reading: the text ends in `?`, it asks for
+one specific thing, `prefer_tool` is still `list_directory`, and the
+expectation is **the subdirectory as `list_directory` renders it** — not a
+`.txt` file that could be added or removed. So adding a sixth *file* cannot
+move the answer, which is exactly what Sc demonstrated.
+
+### Two things the engineer did better than the brief asked
+
+- **Sa used an existing expectation from a different question**, so the *new*
+  expectation was never written into a fixture file at all. The brief did not
+  think of that; it is strictly safer.
+- **Sb found a contradiction in my brief and routed around it correctly.** I
+  told it to add `"eval-fixture"` to `ANSWER_KEY` while forbidding
+  `scripts/eval_workspace.py`, which is the file `ANSWER_KEY` lives in. It used
+  `sealed_workspace(..., also_deny=(...))` instead — a documented parameter of
+  that function, confirmed at `scripts/eval_workspace.py:87`. **That is the
+  third brief of mine to contain a mutation that requires touching a file the
+  same brief forbids.**
+
+### One fragility worth recording, not fixing
+
+The expectation is the only subdirectory in `eval-fixture/`. If someone later
+adds a **second** subdirectory, the question becomes ambiguous and the score
+will move. That is a human commit, not an automated write, so it is the same
+class of risk as adding a new question bank — acceptable, and now written down
+where the next person will see it.
+
+---
+
+## The prediction, written before any run
+
+Required by the standard: a finding produced after the fact is a story told
+about a number. Ollama is up and `omniagent-v2` is the shipped model, so the
+command is
+
+```
+.venv/Scripts/python.exe scripts/holdout_eval.py omniagent-v2 > data/holdout-NN.log 2>&1
+```
+
+**What I expect:**
+
+1. The question's **tool axis passes 10/10** — `list_directory` is the obvious
+   tool and the question names a directory.
+2. The **answer axis is the risk, and here is the specific way I expect it to
+   fail.** The expectation ends in a trailing `/`, because that is how
+   `list_directory` renders a directory. `scripts/eval_scoring.py:88` tests
+   `expect in answer`. **An agent that answers with the directory's name and no
+   trailing slash is right and will be graded WRONG.** That is the same defect
+   class as the question being replaced — grading characters, not answers.
+3. So my prediction is **not** 10/10. I expect either a clean 10/10 if the
+   model echoes the listing verbatim, or a clean 0/10 if it writes the name
+   without the slash, and **very little in between.** A split result would mean
+   the model is inconsistent about echoing tool output, which would itself be
+   worth knowing.
+4. If it is 0/10 for the slash, the fix is to drop the trailing `/` from the
+   expectation — 20 characters, still above `_DISTINCTIVE`.
+
+**Run 1 is a probe for exactly this.** Ten runs of a question that cannot pass
+would be ninety minutes spent confirming a typo, so the first run is read
+before the other nine are started.
+
+Total to beat: `omniagent-v2` scored **12/16 over ten runs with zero variance**
+on the previous question set.
