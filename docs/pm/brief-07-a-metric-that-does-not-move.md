@@ -231,3 +231,66 @@ and why, the contamination check command and its output, the stability
 evidence, your prediction, all ten run results with variance, M1 to M4, the
 three gate results, the commit hash, and anything you refuse to claim.
 Quote neither the question text nor the expectation. -->
+
+Step 0: blocked. The Ollama health check failed with WinError 10013 (localhost socket access forbidden). The brief's specified startup command could not find ollama.exe at its configured path, and the retry failed with the same socket error. I could not run the required single-session evaluation, so I stopped before building or changing evaluation data.
+
+---
+
+## PM note on Step 0 — 2026-10-24
+
+**The engineer stopped at Step 0 and reported it, which is exactly what Step 0
+is for.** No evaluation data was touched. That is the brief working, not a
+failure.
+
+### What was wrong, measured rather than assumed
+
+| Claim in the report | Checked by the manager |
+| --- | --- |
+| the health check failed | **Ollama was not running at all.** No `ollama` process existed. |
+| `ollama.exe` not found at the configured path | **The file is there**, at `AppData/Local/Programs/Ollama/ollama.exe`. The trap list's path is correct. |
+| `WinError 10013` | **I get `WinError 10061` from the same endpoint** — "actively refused", the ordinary nothing-is-listening error. |
+
+**`10061` and `10013` are not the same failure, and the difference is the whole
+diagnosis.**
+
+- **`10061`, connection refused** — nothing is listening. Start Ollama.
+- **`10013`, socket access forbidden** — the *environment* is refusing to let
+  the process open the socket. Starting Ollama does not fix that.
+
+The engineer saw `10013` where the manager sees `10061` against the same
+address, so there is a sandbox difference between the two environments. What is
+**not** yet known is whether that block applies when something is actually
+listening — Windows can return either code when the port is empty.
+
+### Ollama is now running
+
+Started with the trap list's own command, and it answers:
+
+```
+HTTP 200
+omniagent-v2:latest, omniagent:latest, omniagent-v1:latest, qwen-ctx8k:latest, …
+```
+
+`omniagent-v2:latest` is the shipped demo model, so the evaluation has what it
+needs. It will stay up for this session.
+
+### So: retry Step 0 before anything is reassigned
+
+One command answers the question the brief was built to answer, and guessing it
+costs a round trip either way.
+
+**If the retry succeeds**, execute brief 07 whole — nothing about it changes.
+
+**If the retry still returns `10013`**, the sandbox block is confirmed and the
+brief splits as it said it would. The halves, so neither of us has to ask:
+
+| Half | Owner | Scope |
+| --- | --- | --- |
+| design | **the SWE** | choose the subject; prove its listing is stable across a full `pytest` run and an evaluation run; run the contamination check against `G:/OmniAgent/datasets/2026-10-10-merged/` and record the command; design the question and expectation; **M4** (expectation in a reachable `docs/` file turns `tests/test_eval_workspace.py:175` red, then delete that file); the three gates; commit |
+| measurement | **the project manager** | the prediction written first, then **M1**, **M2**, **M3** and the ten runs with variance stated |
+
+The design half needs no model at all. Hand it over with the question and
+expectation **in `scripts/holdout_eval.py` only** — the constraint at the top of
+this brief does not relax because the work was split.
+
+Do not report a measurement you did not produce, in either half.

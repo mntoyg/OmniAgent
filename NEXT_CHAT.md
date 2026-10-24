@@ -830,6 +830,15 @@ exist.
   To start it, PowerShell:
   `Start-Process "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe" -ArgumentList "serve" -WindowStyle Hidden`,
   wait ~15 s. `&` from Bash does not work.
+- **Read the socket error code; the two mean different things.** `WinError
+  10061` is "actively refused" — nothing is listening, so start Ollama.
+  `WinError 10013` is "socket access forbidden" — the *environment* will not
+  let that process open the socket, and starting Ollama does not fix it. On
+  2026-10-24 an engineer reported `10013` and "`ollama.exe` not found" while
+  the binary was at the documented path and the manager got `10061` from the
+  same address: Ollama was simply not running, **and** that engineer's sandbox
+  blocks the socket. One code is a thing to do, the other is a thing to
+  reassign, and reading them as the same failure costs a round trip.
 - **`pytest -q` hides the summary line, and the cause is `addopts`.**
   `pyproject.toml:168` already sets `-q`, so typing `-q` yourself makes it
   `-qq` and `NNN passed` disappears entirely — `grep passed` then matches
