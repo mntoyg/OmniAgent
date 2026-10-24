@@ -1,6 +1,6 @@
 # Brief 07 — rebuild the question whose subject the evaluation writes into
 
-**For the AI/ML engineer.**
+**For the SWE.**
 
 `NEXT_CHAT.md` item 0b has carried this since 2026-10-06: a metric that moves
 when you measure is not a metric. This brief closes it.

@@ -1,11 +1,11 @@
-# Brief 07 — the paste-ready task for the AI/ML engineer
+# Brief 07 — the paste-ready task for the SWE
 
 Paste everything below the line. The companion brief is
 `docs/pm/brief-07-a-metric-that-does-not-move.md`; `## Result` goes there.
 
 ---
 
-You are the **AI/ML engineer** on OmniAgent, `D:\code-project\OmniAgent`,
+You are the **SWE** on OmniAgent, `D:\code-project\OmniAgent`,
 branch `main`, HEAD `cca7c6a`. Baseline: **633 tests passing**, `ruff` clean,
 `mypy` strict clean over 42 files.
 
