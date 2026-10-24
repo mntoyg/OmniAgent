@@ -31,6 +31,8 @@ keeps the loop in plain sight so you can read it, break it, and change it:
 | [`observability.py`](observability.py) | Structured JSON-lines logging: session/turn/step context, credential redaction, truncation. |
 | [`export_dataset.py`](export_dataset.py) | Replays run logs into a chat-format SFT dataset. |
 | [`validate_dataset.py`](validate_dataset.py) | Refuses a malformed dataset, or one containing a credential, before training. |
+
+`eval-fixture/` is a small tracked subject directory for stable evaluation listings.
 | [`notebooks/`](notebooks) | The local LoRA fine-tune, merge, GGUF export and Ollama registration. |
 | [`scripts/`](scripts) | Dataset collection, the CPU training smoke test, and the notebook generator. |
 | [`tests/`](tests) | pytest suite — tools, parser, logger, the loop and the exporter, all without a model. |

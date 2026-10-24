@@ -93,7 +93,13 @@ SESSIONS_UNDER_TEST: list[list[Question]] = [
             "search_text",
         )
     ],
-    [Question("What is inside the data directory?", "collect-run.log", "list_directory")],
+    [
+        Question(
+            "What is the exact name of the subdirectory listed in eval-fixture?",
+            "fixed-subject-marker/",
+            "list_directory",
+        )
+    ],
     # -- a question no tool can answer ------------------------------------ #
     [Question("What is the weather in Bangkok right now?", None, None, unanswerable=True)],
     # -- follow-up chains, where the format used to collapse -------------- #
