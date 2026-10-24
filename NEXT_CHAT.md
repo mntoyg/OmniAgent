@@ -76,8 +76,20 @@ plus this file. Demo is **2026-10-10**, and the weekly quota resets
 2026-10-10 03:00, so nothing refills before it.
 
 **The demo runs on `omniagent-v2`** since `4a7d0bb`. Ten runs of
-`holdout_eval` over both tags, zero variance in either: **12/16 against
-10/16**, honest **1/1 against 0/1**, **49 steps** every run against 57–62.
+`holdout_eval` over both tags, zero variance in either: ~~**12/16 against
+10/16**~~, honest **1/1 against 0/1**, **49 steps** every run against 57–62.
+
+**Superseded for `omniagent-v2` on 2026-10-24: the current question set scores
+`11/16`, zero variance over ten runs** (`5/7` tool pick, `5/5` follow-up,
+`1/1` honest, **57 steps identical to the step**). This is **not** a regression
+from 12/16 — brief 01 added a tracked file, brief 02 changed
+`scripts/build_notebook.py` and brief 08 replaced a question, so three of the
+things the set asks about have moved and the figures are not comparable. The
+set of failing expectations was **byte-identical in all ten runs**, so all five
+failures are reproducible rather than flaky. **Wall clock was not stable
+although the score was: 237 s to 1,508 s, a 6.4× spread**, which is worth
+knowing before anyone times this evaluation from a single run. `omniagent`
+has not been re-measured against the current set.
 Then the demo path itself: **35/35 over seven runs**, one of them by hand.
 `omniagent` is still registered and still 30/30 there, so reverting is one
 line in `omniagent.toml`.
@@ -273,10 +285,27 @@ became 2-3; the data directory was 7-9 and became 3-9.
    refused, and recovers to `file_info`. Switching means editing
    `[profile.demo]` in `omniagent.toml`, which `tests/test_shipped_config.py`
    covers.
-0b. **Retire or rebuild the data-directory question.** Its expectation is a
+0b. ~~**Retire or rebuild the data-directory question.** Its expectation is a
    fact about `data/`, which is the output directory every run writes into --
    85 files now, and the question flipped from OK to WRONG because of that.
-   A metric that moves when you measure is not a metric.
+   A metric that moves when you measure is not a metric.~~
+   **DONE 2026-10-24, `40dd252`. Rebuilt, not retired.** `data/` had reached
+   **101** files and `list_directory` on it returned 3,742 characters over 102
+   lines. The mechanism was not the one recorded here: the expected string was
+   **still in the tool output** and missing from the *answer*, because
+   `scripts/eval_scoring.py:88` grades `expect in answer` only — so the
+   question required the agent to relay one arbitrary entry out of 102, and a
+   correct summary was graded WRONG. Retiring it would have taken
+   `list_directory` coverage to zero: it is 1 of 19 `Question` objects with
+   that `prefer_tool`.
+   **No existing directory could replace it** — measured under a sealed
+   workspace, every candidate was written-to, contaminated, generated, or
+   sealed (`docs` and `models` are in `ANSWER_KEY` and are not even named).
+   So `eval-fixture/` was built: five files and one subdirectory, tracked,
+   unsealed, uncontaminated by construction because the dataset predates it,
+   and byte-stable across a full `pytest` run. Contamination count **zero for
+   all six filenames** over 2,215 examples. The new question scores
+   **10/10 over ten runs**.
 1. **`search_text` resolves every leaf under a refused branch.** ~~It does
    `sorted(start.rglob("*"))`, materialising every path before filtering, so a
    search from `.` costs **25.7 s unsealed and 64.5 s sealed**~~ — **that
@@ -672,6 +701,19 @@ remain readable** — `tests/__init__.py`, `requirements.txt`,
 data. More questions would return more errors and `export_dataset` drops those
 turns. Fixing it needs readable material (a small corpus) or a different cap,
 not a bigger bank.
+
+**Partly answered 2026-10-24, `40dd252`.** Re-measured before `eval-fixture/`
+landed: **4** tracked files were readable by a sealed agent *and* rendered
+intact — `tests/__init__.py` (78 rendered chars), `requirements.txt` (238),
+`tests/test_local_only.py` (924, which only exists because brief 01 added it)
+and `LICENSE` (1,262); 36 were denied or unreadable and 37 too long. Note that
+`omniagent.toml` is in `ANSWER_KEY`, so the earlier count of three included a
+file that is sealed during evaluation. **`eval-fixture/` added six more, all
+rendering intact at 173-202 chars, so the readable set is now 10.** That is
+the small corpus this entry asked for, arriving as a side effect of fixing the
+`list_directory` question. Whether it is enough to move `read_file`'s share of
+the dataset is **not** measured: it needs a fresh collection run, and the
+dataset on `G:` predates the directory.
 
 ### The teacher was chosen on measurement and on the hardware
 

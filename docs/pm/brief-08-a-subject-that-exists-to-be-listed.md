@@ -362,3 +362,89 @@ checkable expectation.
 **Runs 2 to 10 are running as a single sequential command** — one at a time,
 never two, because the card is 4 GB. At 363 s each that is about 55 minutes,
 not the 90 the notes estimated from 544 s.
+
+---
+
+## The ten runs — settled, 2026-10-24
+
+```
+run 01  11/16  5/7  5/5  1/1  57 steps   363s
+run 02  11/16  5/7  5/5  1/1  57 steps   280s
+run 03  11/16  5/7  5/5  1/1  57 steps   246s
+run 04  11/16  5/7  5/5  1/1  57 steps   241s
+run 05  11/16  5/7  5/5  1/1  57 steps  1508s
+run 06  11/16  5/7  5/5  1/1  57 steps   271s
+run 07  11/16  5/7  5/5  1/1  57 steps   464s
+run 08  11/16  5/7  5/5  1/1  57 steps   249s
+run 09  11/16  5/7  5/5  1/1  57 steps   237s
+run 10  11/16  5/7  5/5  1/1  57 steps   661s
+```
+
+All ten results, not a mean. **Zero variance on every scored axis**, and the
+step count is identical to the step.
+
+### The replacement question: 10/10
+
+`ANSWER OK` and the tool axis satisfied in **all ten runs**, and the trailing
+slash appears in every one of the ten logs.
+
+**My prediction was wrong, and it is now wrong on ten runs.** I expected the
+trailing `/` to be the failure — an agent naming the directory without it would
+be right and graded WRONG. The model echoes the tool's own rendering every
+time, quoting the entry as `list_directory` prints it. The risk was real in
+principle and is settled in practice: the expectation keeps its slash.
+
+### Zero variance went further than the total
+
+The set of failing expectations is **byte-identical in all ten runs** —
+md5 `892672bcf7` over the sorted list, every run. So the five failures are
+reproducible, not flaky, which makes each of them diagnosable:
+
+| Expectation | Status |
+| --- | --- |
+| `4740` | `NEXT_CHAT.md` item 5 — documented reproducible 0/10, the only pure-capability failure |
+| `agent.budget.exhausted` | `NEXT_CHAT.md` item 6 — documented as needing replacement, not repair |
+| the last line of `scripts/build_notebook.py` | the agent refuses the file as too long and picks `read_file` over `file_info` |
+| `50` | **new to the record. Stable 0/10.** |
+| `512` | **new to the record. Stable 0/10**, with the tool axis passing |
+
+`50` and `512` were unknown this morning and are now known to fail
+deterministically. That is two diagnosable defects, not two flaky questions.
+
+### The new baseline for this question set
+
+**`omniagent-v2`: 11/16, zero variance over ten runs, 2026-10-24.**
+
+The 12/16 in `NEXT_CHAT.md` is from 2026-10-07 and is **not** comparable: brief
+01 added a tracked file, brief 02 changed `scripts/build_notebook.py`, and this
+brief replaced a question, so three of the things the set asks about have moved.
+11 is not a regression from 12; it is the first figure for a different set.
+
+### Wall clock is not stable even though the score is
+
+237 s to **1,508 s**, a 6.4× spread, with identical scores and identical steps.
+Anyone timing this evaluation from one run would be wrong by up to six times.
+The 544 s in the notes sits inside that spread. **Score variance and clock
+variance are different measurements here**, and only the first is zero.
+
+---
+
+## A correction to this brief's own premise
+
+This brief and brief 07 both open by saying the question text and expectation
+cannot be written into `docs/` because `docs/` is reachable and
+`tests/test_eval_workspace.py:157` would fail. **That reason is wrong.**
+Measured: `docs` is in `ANSWER_KEY`, so a sealed workspace refuses
+`docs`, `docs/pm` and this very file, and `reachable_files()` returns **308
+files, 0 of them under `docs/`.** Quoting the question here would not have
+failed anything.
+
+The instruction that mattered was the other one: **nothing may be written into
+`eval-fixture/`**, which *is* reachable by design. That one was correct and it
+is the one the engineer followed with Sa.
+
+I am keeping the no-quoting discipline for `docs/` as defence in depth — if
+`docs` ever leaves `ANSWER_KEY`, every brief in it becomes a leak at once — but
+it is a precaution, not a test that would catch us, and the briefs stated it as
+the latter. Two engineers were given a stricter rule than reality on a false
+premise.
