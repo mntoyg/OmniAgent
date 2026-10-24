@@ -294,3 +294,77 @@ expectation **in `scripts/holdout_eval.py` only** — the constraint at the top 
 this brief does not relax because the work was split.
 
 Do not report a measurement you did not produce, in either half.
+
+Step 0 retry: `WinError 10013` (socket access forbidden), verbatim. The manager's successful HTTP 200 is not reachable from this process, so I did not run an evaluation.
+
+Design investigation stopped before changing the question. The brief's static candidate `docs/` is denied by `sealed_workspace` (`ANSWER_KEY` includes `docs`); a `list_directory` call against that evaluation workspace returns `Error: that file is not readable by the agent`. The other static candidate checked, `notebooks/`, is contaminated: `rg -n -F 'train_omniagent_lora.ipynb' 'G:/OmniAgent/datasets/2026-10-10-merged/' -g '*.jsonl'` finds training examples whose `list_directory` observations include that entry, with historical sizes 18,600, 19,518, and 20,846 bytes. It therefore measures recall and its listing differs from the current tree. The remaining obvious candidates are excluded by the brief (written-to directories, the contaminated scripts directory, tests with `__pycache__`, sealed directories, or generated build output).
+
+No replacement question or expectation was written. M1, M2, M3, the ten runs, M4, gates, and commit remain unperformed. The permitted file list does not include `scripts/eval_workspace.py`; changing it to make `docs/` reachable requires the project manager to revise the scope or identify another eligible subject.
+
+---
+
+## PM note 2 — the candidate list is empty, and that is the finding
+
+**2026-10-24. The engineer was right on both counts, and it escalated instead
+of widening its own scope or picking a bad subject. That is the behaviour this
+brief wanted.**
+
+Also confirmed: **Step 0's retry returned `WinError 10013` again**, with Ollama
+up and answering HTTP 200 for the manager. The sandbox block is real and
+independent of whether anything is listening. **The measurement half is the
+manager's from here.**
+
+### What I got wrong in this brief
+
+I recommended `docs/` as the strongest candidate — "17 tracked files, nothing
+writes there". I never checked it against the seal. `scripts/eval_workspace.py:56`
+puts **`docs`** in `ANSWER_KEY`, which makes it unreadable *and unnameable*: a
+sealed workspace does not even list it. My recommendation was impossible and the
+engineer found that in the first place it looked.
+
+### Every candidate, measured under the sealed workspace
+
+What a sealed workspace can list at the root is `__pycache__/`, `data/`,
+`notebooks/`, `omniagent-core/`, `questions/`, `scripts/`, `tests/` and the
+root `.py` files. `docs/` and `models/` are not named at all.
+
+| Candidate | Sealed listing | Verdict |
+| --- | --- | --- |
+| `data/` | **101 entries** | written to by every run, and gitignored — **nothing in it is permanent**, so no expectation about it survives a clean clone. It is `LISTING_ONLY`, which is why the question chose it: listable, unreadable. |
+| `tests/` | **20 entries** | includes `__pycache__/`, and nine test files are in `ANSWER_KEY` so they are **absent from the listing**. The listing is a function of `ANSWER_KEY` and changes when it does. |
+| `notebooks/` | 1 entry, 20,846 bytes | **contaminated.** The dataset holds historical sizes 18,600, 19,518 and 20,846 for it. |
+| `questions/` | 1 entry | **contaminated.** Scanning 2,215 examples in `G:/OmniAgent/datasets/2026-10-10-merged/`: `bank-2026-10-10` in **5**, `questions/` in **20**. |
+| `omniagent-core/` | 1 entry, `build/` | local build artifact; absent from a clean clone of `main`. |
+| `docs/`, `models/` | not named | sealed. |
+
+For scale, `list_directory` itself appears in **421 of 2,215** examples, so the
+*tool* is well represented in training. The problem is subject-specific recall,
+not the tool.
+
+**There is no existing directory in this repository that is listable, unsealed,
+stable, uncontaminated and present in a clean clone.** That is why this brief
+could not be executed as written, and it is a better finding than the one it
+set out to produce.
+
+### The contamination check, for the next person
+
+No script existed. This is the one that was run, and it should be reused rather
+than reinvented:
+
+```python
+import pathlib
+base = pathlib.Path('G:/OmniAgent/datasets/2026-10-10-merged')
+for f in sorted(base.glob('*.jsonl')):
+    for line in f.read_text(encoding='utf-8', errors='ignore').splitlines():
+        if line.strip() and '<candidate>' in line:
+            ...  # count it
+```
+
+2,215 examples across `collect-2026-10-07.jsonl`,
+`collect-2026-10-10.jsonl` and `dataset-merged-2026-10-10.jsonl`.
+
+### Status
+
+No replacement question was written. Nothing in `scripts/holdout_eval.py`
+changed. The old question is still in place and still degrading. **The decision
+about what subject can exist at all is the owner's and is on the table.**
