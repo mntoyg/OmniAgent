@@ -40,3 +40,10 @@ models/
 
 # Native offline inference core build artifacts
 omniagent-core/build*/
+
+# Scratch output from an external Bandit patch-audit tool. The suffix is a
+# fresh hash on every run, so the pattern is wildcarded: pinning the one
+# directory seen on 2026-10-26 would let the next run reappear untracked.
+# Nothing in this repository produces these; they are ignored so `git add -A`
+# cannot sweep ~1 MB of someone else's scan output into a commit.
+.tmp-omnipatch-*/
