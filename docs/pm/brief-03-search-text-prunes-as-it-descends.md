@@ -210,3 +210,73 @@ tracks the one this work does not belong to. Leave it unpushed.
 of the tests that changed colour, the three before and three after timings, the
 three gate results, the pytest count, the commit hash, and anything you refuse
 to claim. -->
+
+---
+
+## Re-issued 2026-10-26 — the figures are refreshed, the task is not changed
+
+This brief was issued on 2026-10-23 and has not been started. `tools.py` is
+untouched: `git log fb8220e..HEAD -- tools.py` is empty. **Nothing about the
+diagnosis or the prescription has changed. The numbers in it have.**
+
+Three days of other work moved the tree, so the old baseline would have had the
+engineer chasing a figure that no longer exists — the same way
+`NEXT_CHAT.md:391` went stale under brief 02. Re-measured today, three runs:
+
+| Phase | 2026-10-23 (warm) | 2026-10-26 (warm) |
+| --- | --- | --- |
+| paths from `sorted(rglob("*"))` | 87,482 | **89,550** |
+| **`resolve()` over refused paths** | 69,186 denied, 23.3–25.5 s | **70,032 denied, 25.4–27.6 s** |
+| walk | 1.6 s | 1.6–2.9 s |
+| `read_bytes()` | 0.04 s | 0.04–0.06 s |
+| **total** | **26.6–29.1 s** | **29.1–32.6 s** |
+
+A cold first run measured 40.9 s with a 7.1 s walk; that is a page-cache
+artefact and is not the baseline. **`resolve()` is still 85–87% of a warm run
+and the walk is 5–9%.** The shape is unchanged: the prescription in this brief
+is still right and still worth about twenty-five seconds.
+
+**Baseline to beat is now 29.1–32.6 s warm, not 26.6–29.1 s.**
+
+### Where the 400-file budget goes now
+
+| Directory | 2026-10-23 | 2026-10-26 |
+| --- | --- | --- |
+| `models/` | 285 | 255 |
+| `data/` | 92 | 102 |
+| `docs/` | 9 | 23 |
+| `__pycache__/` | 8 | 8 |
+| `eval-fixture/` | — | 6 |
+
+`eval-fixture/` is new, from brief 08. `data/` keeps growing because every
+evaluation writes there. `docs/` grew because this brief's own siblings were
+written into it.
+
+### One thing to be careful about when you measure the improvement
+
+There is currently an untracked directory in the working tree,
+`.tmp-omnipatch-release-audit-67a40f9906cc486895f4a4c514569221`, holding about
+994 KB of Bandit scan output. **No brief asked for it and it is not
+gitignored.** It is dot-prefixed, so the workspace refuses everything inside
+it — which means the current `search_text` resolves every leaf under it and
+discards them, while a pruning walk skips the whole branch at the top.
+
+**That directory flatters the fix.** Measure before and after **on the same
+tree state**, and say in your report what was in the tree when you measured. A
+speed-up that depends on how much junk is lying around is not a measurement of
+your change.
+
+Do not delete that directory. It is not yours and not mine; it is reported to
+the owner separately.
+
+### Everything else in this brief stands
+
+The ordering contract is unchanged and is still the thing that would make this
+wrong: `MAX_SEARCH_FILES` is 400 and `MAX_SEARCH_MATCHES` is 50, so the
+candidate order decides which matches the agent sees, and the 153 training
+examples were collected against today's output. Collect the pruned paths, then
+`sorted()` them exactly as before.
+
+The three tests, the five mutations M1–M5, and the forbidden list are all
+unchanged. The pytest baseline has moved: it is **633 passed**, not 631, so
+expect **636** with your three tests.
