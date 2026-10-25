@@ -87,6 +87,13 @@ brief depends on it. Codex also cannot run a WSL/Linux build.
   the full `.venv\Scripts\python.exe` path and **never your own `-q`**
   (`pyproject.toml:168` already sets it; a second one deletes the summary).
 - **Ten runs, not three.**
+- **Never measure a tree someone else is writing to.** Record HEAD and
+  confirm the working tree is clean **before** a run, and that HEAD has not
+  moved **after** it. If either check fails the run is void and is thrown
+  away, not interpreted. Learned on 2026-10-26: a run started three minutes
+  after an engineer landed two commits in the same checkout, measured the new
+  question bank instead of the old one, and tested nothing it was started to
+  test.
 - **Mutation-check everything**, restoring from a scratchpad copy — never
   `git checkout --` alone.
 - **A substring expectation grades characters, not answers.**

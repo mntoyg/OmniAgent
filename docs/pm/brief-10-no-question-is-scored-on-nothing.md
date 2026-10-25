@@ -650,6 +650,68 @@ rather than a comparison, and I expect at least one of the other seventeen
 questions to have moved for reasons that are not this brief. **If 11 of the
 old 16 still pass, exactly, P6 is wrong and that is worth knowing too.**
 
+# The P6 run did not happen, and the reason is mine — 2026-10-26
+
+I started a full evaluation to test P6 — whether the 11/16 baseline still
+reproduces — and **it tested nothing, because the engineer was working in this
+same checkout at the time.**
+
+| Time | What |
+| --- | --- |
+| 06:24:44 | `0bc25b6`, the commit I intended to measure |
+| 06:34:28 | `2b740f5` — the engineer lands Part 1 |
+| 06:38:36 | `60183b8` — the engineer lands Part 2 |
+| ~06:41:40 | **my run starts**, importing whatever was on disk |
+| 06:45:48 | it finishes, 248 s |
+
+The bank it asked was the **new** one. P6 needed the old one, which had been
+gone for three minutes when the process started. And `scripts/holdout_eval.py`
+had uncommitted Part 3 edits in it throughout, so the code that ran matches no
+commit and cannot be reproduced.
+
+**So the run is void as a measurement.** Not "mostly fine" — void. Any figure
+taken from it is a figure nobody can re-derive.
+
+## What it is worth as a sighting, and nothing more
+
+It asked the new bank once and scored **13/18**, with the comparison at index
+8 passing both axes, the replacement search question at index 10 passing both,
+and the follow-up at index 19 wrong. That is P1′, P3, P2′ and P4′ exactly.
+
+**I am not banking it.** One run from an unversioned tree that matches a
+prediction is the most tempting kind of evidence to over-read, and the ten
+runs happen after the engineer lands or they do not happen.
+
+## The discipline this broke, now a standing rule
+
+I measured in a checkout another session was writing to, and I did not run
+`git status` first. The project's own standard is that `git log` is the truth;
+I never asked it.
+
+**Before any measurement: record HEAD and confirm the working tree is clean.
+After it: record HEAD again and confirm it has not moved. If either check
+fails, the run is void and gets thrown away rather than interpreted.** A
+measurement whose subject changed under it is not a weak measurement, it is
+not one at all.
+
+The deeper fix is that a measuring session and a writing session should not
+share a checkout. That is a change to how we run the roles, and it goes to the
+owner rather than being decided here.
+
+## Two things worth keeping from the void run
+
+- **The listing question at index 11 took 2 steps where all ten recorded runs
+  took 3.** Part 2 added a file to `eval-fixture/`, and brief 08's Sc proved
+  the *expectation* does not move when that happens. It did not say the
+  *behaviour* would not. Worth a look when the real runs are read.
+- **The retired question was never measuring `search_text` at all.** In all
+  ten recorded runs it called `read_file` and `file_info`, never
+  `search_text`, and it was the bank's only `search_text` question. So the
+  instrument had **no coverage of that tool whatsoever**. Part 2 is not a
+  repair of a broken expectation; it restores a missing axis. The void run is
+  the first time `search_text` has been exercised by this evaluation — which
+  is a reason to want the real ten runs, not a substitute for them.
+
 ## Result
 
 <!-- Engineer: append here. The retro-score of the ten recorded logs under the
