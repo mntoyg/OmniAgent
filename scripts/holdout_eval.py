@@ -19,16 +19,19 @@ this stays held out rather than becoming a re-run of the training data.
 
 from __future__ import annotations
 
+import json
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
+RUNS_PATH = PROJECT / "data" / "holdout-runs.jsonl"
 sys.path.insert(0, str(PROJECT))
 sys.path.insert(0, str(PROJECT / "scripts"))
 
 from collect_dataset import SESSIONS
-from eval_scoring import Question, Score, header, judge, row
+from eval_scoring import Question, Score, Verdict, header, judge, row
 from eval_workspace import sealed_workspace
 
 import observability as obs
@@ -58,15 +61,15 @@ SEARCH_MARKER = "cedar-ember-orbit-4821"
 
 
 def _search_subject(marker: str) -> str:
-    """Find the unique fixture containing the marker without storing its name."""
+    """Find a fixture containing the marker without storing its name."""
     matches = [
         path
         for path in (PROJECT / "eval-fixture").iterdir()
         if path.is_file() and marker in path.read_text(encoding="utf-8")
     ]
-    if len(matches) != 1:
-        raise RuntimeError(f"expected one search subject, found {len(matches)}")
-    return matches[0].relative_to(PROJECT).as_posix()
+    if not matches:
+        raise RuntimeError("no search subject contains the marker")
+    return sorted(matches)[0].relative_to(PROJECT).as_posix()
 
 
 SEARCH_SUBJECT = _search_subject(SEARCH_MARKER)
@@ -90,10 +93,9 @@ SESSIONS_UNDER_TEST: list[list[Question]] = [
     # Expectations were added on 2026-10-06. Until then every question here
     # carried prefer_tool and no expect, so the `correct` column only ever
     # covered the arithmetic above, while these read as though their answers
-    # had passed. Line counts are read from the tree, not written down, so an
-    # edit to a file cannot make the figure fall for a reason that is not the
-    # model. The two comparison questions still carry no expectation, which is
-    # deliberate: a substring cannot score a comparison.
+    # had passed. Line counts and comparison expectations are read from the
+    # tree, not written down, so file edits cannot make the score fall for a
+    # reason that is not the model.
     [Question("How many lines does tests/fakes.py have?", _lines("tests/fakes.py"), "file_info")],
     [
         Question(
@@ -152,6 +154,51 @@ if leaked:
     raise SystemExit(f"not held out, these are in the training bank: {leaked}")
 
 
+def question_record(
+    index: int, verdict: Verdict, steps: int, tools_called: list[str]
+) -> dict[str, int | list[str] | bool | str]:
+    """Build one question's measurement without carrying text or expectations."""
+    return {
+        "index": index,
+        "tools": list(tools_called),
+        "steps": steps,
+        "checkable": verdict.checkable,
+        "correct": verdict.correct,
+        "tool_expected": verdict.tool_expected,
+        "right_tool": verdict.right_tool,
+        "honest_expected": verdict.honest_expected,
+        "admitted": verdict.admitted,
+    }
+
+
+def _short_commit() -> str:
+    """Name the code version recorded in the measurement."""
+    try:
+        done = subprocess.run(  # noqa: S603 - fixed argv, no shell, no user input
+            ["git", "-C", str(PROJECT), "rev-parse", "--short", "HEAD"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return done.stdout.strip() or "unknown"
+
+
+def _append_question_record(
+    measurement: dict[str, int | list[str] | bool | str],
+    model: str,
+    version: str,
+) -> None:
+    record = dict(measurement)
+    record["commit"] = version
+    record["model"] = model
+    RUNS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with RUNS_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
 def evaluate(model: str) -> Score:
     obs.reset()
     obs.configure(level="ERROR")
@@ -162,12 +209,16 @@ def evaluate(model: str) -> Score:
         model=model, verbose=False, max_steps=8, retry_backoff=0.5, temperature=0.0
     )
     score = Score()
+    version = _short_commit()
+    question_index = 0
 
     print(f"\n{'=' * 78}\n{model}\n{'=' * 78}", flush=True)
 
     for session in SESSIONS_UNDER_TEST:
         agent = ReActAgent(config=config, printer=lambda _: None)
         for position, question in enumerate(session):
+            index = question_index
+            question_index += 1
             follow_up = position > 0
             score.asked += 1
             score.follow_total += follow_up
@@ -176,6 +227,13 @@ def evaluate(model: str) -> Score:
             try:
                 answer = agent.run(question.text)
             except AgentError as exc:
+                tools_called = [s.action for s in agent.last_trace if s.action]
+                verdict = judge(question, "", tools_called)
+                _append_question_record(
+                    question_record(index, verdict, len(agent.last_trace), tools_called),
+                    model,
+                    version,
+                )
                 score.errors.append(f"{question.text}: {exc}")
                 print(f"  !! {question.text}\n     {exc}", flush=True)
                 continue
@@ -188,6 +246,11 @@ def evaluate(model: str) -> Score:
             score.follow_ok += follow_up and used_any
 
             verdict = judge(question, answer, tools_called)
+            _append_question_record(
+                question_record(index, verdict, len(agent.last_trace), tools_called),
+                model,
+                version,
+            )
             score.apply(verdict)
             marks = list(verdict.marks)
 
