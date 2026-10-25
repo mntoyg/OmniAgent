@@ -1,5 +1,12 @@
 # Brief 10 — no question is scored on nothing
 
+> **ON HOLD, 2026-10-26, and not to be pasted yet.** Writing the prediction at
+> the end of this file found a defect in **Part 1** of this brief: the rule it
+> specifies grades a comparison and instruction-following as one bit, which is
+> the thing `scripts/holdout_eval.py:7-12` says not to do. The fork is at
+> **"A defect in this brief, found by writing the prediction"** below and is
+> with the owner. Parts 2 and 3 are unaffected.
+
 **For the SWE.** Design and static verification only; the measurement half is
 the manager's and is named at the bottom. **No model run is needed for any
 part of this brief** — including the retro-scoring in Part 1, which reads logs
@@ -424,6 +431,115 @@ git commit -m "docs: brief 10 result -- the instrument no longer scores a questi
 
 **Do not run a bare `git push`** — two remotes, and `main` tracks the one this
 work does not belong to. Name it: `git push origin main`.
+
+# The prediction, written before any run — 2026-10-26, HEAD `4c33c2f`
+
+Written **before the engineer has started**, which is earlier than the
+standard asks for and is the point: a prediction written after the code exists
+is a story told about a number. Ollama has not been restarted and no run of
+any kind has been made since this brief was issued.
+
+Current baseline to beat: **`omniagent-v2`, 11/16, zero variance over ten
+runs, 2026-10-24**, failing set byte-identical every run.
+
+## What the denominator does, and the misreading I am pre-committing against
+
+| Change | Denominator |
+| --- | --- |
+| today | 16 |
+| the `'budget'` question retired | 15 |
+| its replacement added | 16 |
+| the comparison at `:77` becomes checkable | 17 |
+| the follow-up at `:122` becomes checkable | 18 |
+
+**The new figure will look like a regression and will not be one.** 11/16 is
+69%; anything under 12.4/18 reads as worse while meaning nothing of the kind.
+I am writing this down now so that neither of us gets to discover it
+afterwards.
+
+## The five predictions, each falsifiable
+
+**P1 — the comparison at `:77` scores 0/10 under Part 1 as written.** It is
+answered correctly in substance in all ten recorded runs, and every one of
+those answers names both files. The new rule forbids the loser's name, so the
+question passes only if the model obeys the new "name the file only"
+instruction. This model drops out of formats it was explicitly taught
+(`agent.py:207-218`), so I do not expect it to obey a format instruction it
+has never seen. **If P1 is right, a question that is right ten times out of
+ten will report zero.**
+
+**P2 — the follow-up at `:122` scores 0/10.** Six of ten runs exhaust the step
+budget and three invent a tool failure; nothing in this brief changes the
+agent, so I expect the same behaviour and the same answers. The one run that
+named the right file would be graded wrong under Part 1 as written, because it
+names both.
+
+**P3 — the replacement search question scores 9/10 or 10/10.** Brief 08's
+replacement went 10/10 and this one is an easier shape: one marker, one
+carrier, `search_text` is the obvious tool. **The failure mode, if there is
+one, is the agent answering with the matched line instead of the filename** —
+that is what the retired question trained it to do, and it is the specific
+thing I will look for in run 1.
+
+**P4 — the total is 12/18, with zero variance.** 11 correct today, minus the
+`'budget'` question which was a guaranteed miss, plus the replacement (P3),
+plus nothing from `:77` and `:122` (P1, P2). Zero variance survives because
+every one of those outcomes is the same in all ten recorded runs.
+
+**P5 — the wall clock stays unstable and the step count moves.** The 237 s to
+1,508 s spread is a property of the machine, not the question set, so I expect
+it to persist. The step total will not stay at 57: two questions are reworded
+and one is replaced.
+
+**What would make me wrong in an interesting way:** P1 failing because the
+model *does* obey the format instruction. That would say something about this
+fine-tune that the nine briefs so far have not — and it is cheap to find out,
+which is the next section.
+
+# A defect in this brief, found by writing the prediction
+
+P1 is a prediction that **my own rule turns a question the agent answers
+correctly into a zero.** That is worth stopping for.
+
+`scripts/holdout_eval.py:7-12` states the principle this project was built on:
+tool choice and correctness are scored separately, because "dumping a whole
+file to count its lines is a wrong answer that happens to be right", and
+rolling two things into one figure hides exactly that. `scripts/eval_scoring.py:76-80`
+says the same again.
+
+**Part 1 as written breaks that principle.** A comparison question graded on
+`none_of` plus a format instruction reports one bit for two different
+capabilities — can it compare, and will it obey an answer format. When that
+bit is zero we cannot say which failed. That is the defect the whole project
+is organised against, and I wrote it into the brief myself.
+
+The honest alternative is weaker in a way I can state exactly:
+
+| | **A1 — as issued** | **A2 — the winner's name alone** |
+| --- | --- | --- |
+| the rule | `all_of=(winner,)`, `none_of=(loser,)`, question text demands the filename only | `expect=winner`, a plain substring, question text unchanged |
+| needs the `Expectation` type | yes | **no — Part 1 collapses to giving two questions an ordinary expectation** |
+| `:77` on the recorded answers | 0/10 | 10/10 |
+| `:122` on the recorded answers | 0/10 | **1/10** — run 07 names the right file |
+| the hole | closed | **open: "Y is longer than X" would be graded right.** Never observed in ten runs, and it is why the original author left the question unscored |
+| axes | comparison and instruction-following rolled into one bit | separate, as the project requires |
+| variance | zero preserved | **the first non-zero score variance this project has measured**, 12 or 13 depending on the run |
+
+A2's non-zero variance is not a flaw in A2. It is information A1 would hide:
+the derailment at `:122` is *not* fully deterministic, and today's "byte-identical
+every run" claim is true of the answers, not of the behaviour behind them.
+
+**This is a decision about what the instrument is for, so it goes to the owner
+rather than being settled here.** It is recorded at the top of this file as a
+hold on Part 1. Parts 2 and 3 stand either way.
+
+## The probe that would settle P1 for about a minute of model time
+
+Ask the reworded `:77` question once, on its own, under the sealed workspace,
+and read whether the model answers with the filename alone. One question, not
+an evaluation — minutes, not the 40-to-250 of a full run. **The prediction
+above is written and committed first, so the probe can only confirm or refute
+it, not inform it.** This is the manager's half and needs Ollama restarted.
 
 ## Result
 

@@ -1,5 +1,13 @@
 # Brief 10 — the paste-ready task for the SWE
 
+> **ON HOLD, 2026-10-26 — do not paste this yet.** Writing the ten-run
+> prediction found a defect in **Part 1**: the rule it specifies grades a
+> comparison and instruction-following as one bit, which
+> `scripts/holdout_eval.py:7-12` says not to do. The fork (A1 as issued, or A2
+> — the winner's name as a plain substring, which removes the need for the
+> `Expectation` type altogether) is with the owner. **Parts 2 and 3 are
+> unaffected and could be issued on their own.**
+
 Paste everything below the line. The companion brief is
 `docs/pm/brief-10-no-question-is-scored-on-nothing.md`; `## Result` goes there.
 
