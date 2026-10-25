@@ -388,7 +388,7 @@ The five wrong, read rather than counted:
 | last line of `build_notebook.py` | "has 14,015 lines, which exceeds the maximum length" | known — and 14,015 is itself invented; the file has 461 lines |
 | **where 'budget' is used in `agent.py`** | **"The word 'budget' is not used in `agent.py`."** | **new shape, same source** |
 | Finally, what is 10% of that? | "10% of 1000 is 100" | known referent error, resolves "that" to the step-2 answer |
-| And `scripts/build_notebook.py`? | "cannot be read because it is too long" | known elliptical-follow-up failure |
+| ~~And `scripts/build_notebook.py`?~~ | ~~"cannot be read because it is too long"~~ | **STALE** — v2 resolves the ellipsis, calls `file_info` and receives 512 lines, then answers 513; tool axis passes and expectation matches the tool. Cause not established; trace run outstanding. |
 
 **The 'budget' answer is worse than the harness runs suggested.** Sealed, it
 now asserts the word is *not used in the file* — which is the exact false

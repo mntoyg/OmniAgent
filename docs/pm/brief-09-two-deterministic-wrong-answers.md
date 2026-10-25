@@ -183,3 +183,34 @@ negative results. The two training-data scan commands and their counts. The
 _lines vs file_info divergence answer. The NEXT_CHAT correction you made. The
 three gate results, the commit hash, and anything you refuse to claim --
 including that the trace run is the manager's and is outstanding. -->
+
+## Result
+
+### Prompt and tool descriptions
+
+Reviewed `SYSTEM_PROMPT_TEMPLATE` with the live `describe_tools()` rendering, including all six registered tool descriptions and their argument descriptions. The system prompt requires `calculate` for arithmetic and describes `read_file` as line-numbered; `file_info` explicitly reports a line count. Neither the assembled prompt nor the tool descriptions define a line count as newline count plus one, mention that formula, or otherwise instruct a +1. Internal comments in `agent.py` discuss earlier line-count failures, but those comments are not injected into the runtime prompt. I found no prompt-side explanation for the observed answer; the trace is needed to establish what arithmetic was performed.
+
+### Training-data scan 1: line counts
+
+Scanned all 2,215 nonblank examples in the three files under `G:/OmniAgent/datasets/2026-10-10-merged/` (1,404 in `collect-2026-10-07.jsonl`, 658 in `collect-2026-10-10.jsonl`, 153 in `dataset-merged-2026-10-10.jsonl`). The PowerShell command was an inline Python scan piped to ` .\.venv\Scripts\python.exe -`; it parsed log events and merged `messages`, selected line-count questions, and compared final-answer counts against the corresponding `file_info` observations.
+
+- Collected logs: 9 line-count turns, all 9 with a `file_info` fact; 0 answers off by one.
+- Merged conversations: 11 line-count question occurrences; 9 include a `file_info` observation and all 9 answers match it. Two answer-only copies match the corresponding tool-backed examples elsewhere in the corpus. 0 off-by-one answers found.
+- No line-count answer phrases a count as newlines plus one. The two literal `newline` matches in the corpus are search observations describing newline-delimited JSON logs; neither discusses line counting.
+
+### Training-data scan 2: follow-up referents
+
+A second inline Python scan piped to ` .\.venv\Scripts\python.exe -` grouped collected log turns by file, session and turn, and walked merged conversations in order. It selected follow-ups containing referential cues (`that`, `it`, `this`, `these`, `those`, `the result`, `the answer`, or `the number`), then inspected the preceding questions and answers.
+
+- 17 follow-up contexts in collected logs and 18 in the merged conversations were inspected; the merged set repeats some collected examples.
+- I found no example resolving a pronoun to an answer older than the immediately preceding step. The multi-step arithmetic chains resolve to the immediately preceding result. Negative result: the collected examples do not reproduce the observed referent error.
+
+### `_lines` and `file_info`
+
+`_lines` uses `Path.read_text(...).splitlines()`. `file_info` uses `Workspace.describe`, which iterates the file as raw bytes and splits records on LF. They agree for LF, CRLF, and a final line without a newline; they do **not** agree by construction. In-memory checks of the exact underlying operations gave 2 vs 1 lines for bare-CR input and 2 vs 1 for a Unicode line separator. The current `scripts/build_notebook.py` is CRLF, ends with a newline, and both implementations report 512 lines, so this case is unaffected. This is a separate helper-contract mismatch; I did not edit other files because the brief permits only the stale `NEXT_CHAT.md` entry and this report.
+
+### Record and remaining trace
+
+Struck the stale entry at `NEXT_CHAT.md:391` in place and rewrote it to say that v2 now resolves the ellipsis, receives the correct `file_info` count, but answers one higher; the tool axis passes and the expectation agrees with the tool. The previous entry was stale, not false when written. The static scans do not establish why the agent adds one. The tool-argument trace run is outstanding and belongs to the project manager.
+
+Gates: `ruff check .` passed; `mypy` passed with no issues across 42 files; full `pytest` passed, **633 passed**. Neither question nor expectation was edited. Commit and push are not yet performed.
