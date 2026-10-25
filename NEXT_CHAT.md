@@ -13,6 +13,14 @@ every work step. **Name the remote: `git push origin main`.** `main` tracks
 **Read this block, then `git log --oneline -20`. Everything below PART 1 is
 older and parts of it are struck through; trust the strikes.**
 
+**The next chat starts from `docs/pm/handoff-prompt.md`**, not from this file.
+That prompt is regenerated whenever a session reaches **70% context**, which is
+the standing rule as of 2026-10-26: at 70%, stop and write the next chat's
+whole opening prompt — the role it takes, the budgets, the standards, the
+measured state, the open list and the trap list — not a summary. Keep this
+block in step with it. The role from 2026-10-26 onward is **project manager
+and solution system architect**.
+
 The repository is **public**, MIT. `main` is at `5bc7425`. **636 tests**, ruff
 clean, mypy strict clean over **43** files. Three gates still:
 `.venv\Scripts\python.exe -m ruff check .`, `-m mypy`, `-m pytest` — full path,
