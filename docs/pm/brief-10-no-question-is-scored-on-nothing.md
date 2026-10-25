@@ -757,3 +757,80 @@ outstanding. Quote neither the marker, the filename, nor any question text. -->
 - Part 3: `2ee2173`
 
 ผมไม่ได้รัน model, ไม่ได้เขียน prediction หรือ baseline ใหม่ และไม่อ้างตัวเลขจากการรันใด ๆ ของ project manager. ตามบันทึกที่เพิ่มใน brief การรันก่อนหน้าของ manager ถูกตัดเป็น void; การวัดใหม่สิบ runs และ baseline ยังเป็นงานของ manager และยัง outstanding.
+
+---
+
+# PM verification of the design half — 2026-10-26, `06b93c7`
+
+**No defects found in the work. One defect found in my brief, by the
+engineer.** Everything below was re-derived rather than read.
+
+Tree clean before and after, HEAD unmoved at `06b93c7` — the rule from the
+void run, applied to its first verification.
+
+| Claim | Re-checked by the manager |
+| --- | --- |
+| three gates | ruff clean · mypy **44** files · **642 passed** |
+| nothing scored on nothing | **19 questions, 18 checkable, zero scored on neither an answer nor honesty** |
+| expectations computed, not written | both resolve from the tree: the longer of each pair |
+| retro-score | **10/10 and 1/10** — identical to the figures I derived independently before issuing |
+| marker carriers | **1** |
+| expectation carriers | **0** |
+| contamination | **0 and 0** over 2,215 examples (1,404 + 658 + 153) |
+| the subject reads intact | 100 raw characters, inside the existing fixture range |
+| reachable files | 309 → **311**: the new subject and `tests/test_holdout_record.py` |
+
+Scope held exactly. Three commits, nothing outside the touchable list, and
+the report committed with them.
+
+## The engineer was right and my brief was wrong — Mb
+
+I wrote that swapping the winner and the loser would flip the retro-score
+from 10/10 to **0/10**. It stays at **10/10**, and I have confirmed it:
+
+```
+right    answer -> correct=True
+REVERSED answer -> correct=True
+```
+
+Both recorded answers name both files, so an expectation of either one is
+satisfied. **The answer axis on the comparison cannot tell a right answer
+from a reversed one at all.** I had called this a hole that "has never been
+observed"; it is not a hole that waits for an unlucky answer, it is a hole
+that is open on every answer the model actually gives.
+
+`test_a_reversed_comparison_answer_still_grades_correct` asserts exactly
+this, which is the right way to hold it: the next person to touch the rule
+will see the test before they see my reasoning.
+
+### What that means for the number we are about to measure
+
+**The point each comparison contributes is nearly free.** It is earned by
+naming a file, not by comparing two. Both comparison questions have this
+property, including the follow-up, whose single recorded pass names both
+files too.
+
+So, stated exactly: **open item 2 is closed** — a derailment is no longer
+recorded as "not wrong", which was the whole purpose — and a **new, smaller
+item takes its place: the agent's ability to compare two files is still not
+measured by anything.** Every way of measuring it that we have examined costs
+more than it is worth; that is a decision for the owner, not a patch.
+
+## Two judgement calls the engineer made that the brief did not ask for
+
+- **`test_eval_fixture_contains_only_the_six_existing_files_and_new_subject`**
+  pins the fixture directory's inventory. Brief 08 said a human adding a
+  seventh file later is normal; this test makes that a failure. I am keeping
+  it. It is the cheapest guard against the thing brief 08 actually feared —
+  something writing into the one directory the agent can read — and a human
+  who means to add a file will see the test and update it deliberately.
+- **`_search_subject()` derives the subject's filename from the marker at
+  import time** rather than storing it, so the expectation cannot drift from
+  the file. Stronger than asked for. Its one fragility is `sorted(...)[0]` if
+  a second file ever carries the marker, which is exactly what Md's test
+  prevents.
+
+## What is outstanding, and it is mine
+
+The ten runs and the new baseline. P1′ to P6 are written and committed at
+`58abbed` and `7ba3fbc` and are not revised again.
