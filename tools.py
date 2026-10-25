@@ -19,6 +19,7 @@ import operator
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -29,6 +30,7 @@ from sandbox import (
     MAX_READ_CHARS,
     TRUNCATION_NOTE,
     SandboxError,
+    Workspace,
     get_workspace,
 )
 
@@ -534,6 +536,41 @@ def list_directory(path: str = ".") -> str:
     return f"{shown}:\n" + "\n".join(f"  {entry}" for entry in entries)
 
 
+def _searchable_files(workspace: Workspace, start: Path) -> list[Path]:
+    """Files under `start` the workspace admits, pruned branch by branch.
+
+    Resolving every path under a hidden directory and discarding it afterwards
+    is 87% of a search from the root.
+
+    The idiom is the one ``tests/test_eval_workspace.py:113 reachable_files``
+    already pays for: ask the workspace, and prune on its refusal rather than
+    on a second copy of ``sandbox.py``'s rules, which would drift.
+    """
+    found: list[tuple[Path, Path]] = []
+    stack = [start]
+    while stack:
+        try:
+            children = list(stack.pop().iterdir())
+        except OSError:
+            continue  # vanished or unreadable, which rglob would also skip
+        for child in children:
+            try:
+                resolved = workspace.resolve(workspace.display(child))
+            except SandboxError:
+                continue  # hidden, denied or escaping: prune the whole branch
+            if child.is_dir():
+                if not child.is_symlink():
+                    stack.append(child)  # rglob does not follow one either
+            elif child.is_file() and resolved.stat().st_size <= workspace.max_file_bytes:
+                found.append((child, resolved))
+
+    # Sorted on the walked path, not the resolved one, because that is the key
+    # the global ``sorted(rglob("*"))`` used. MAX_SEARCH_FILES and
+    # MAX_SEARCH_MATCHES truncate, so this order decides which matches the
+    # model is shown, and the collected examples were recorded against it.
+    return [resolved for _, resolved in sorted(found)]
+
+
 def search_text(  # noqa: PLR0912 - a guard per thing that can go wrong in a walk
     query: str, path: str = "."
 ) -> str:
@@ -552,22 +589,18 @@ def search_text(  # noqa: PLR0912 - a guard per thing that can go wrong in a wal
     except SandboxError as exc:
         return f"Error: {exc}"
 
-    candidates = [start] if start.is_file() else sorted(start.rglob("*"))
+    if start.is_file():
+        # Admitted by the resolve above; only the byte limit is left to apply.
+        candidates = [start] if start.stat().st_size <= workspace.max_file_bytes else []
+    else:
+        candidates = _searchable_files(workspace, start)
     matches: list[str] = []
     scanned = 0
     lowered = needle.lower()
 
-    for candidate in candidates:
+    for resolved in candidates:
         if len(matches) >= MAX_SEARCH_MATCHES or scanned >= MAX_SEARCH_FILES:
             break
-        if not candidate.is_file():
-            continue
-        try:
-            resolved = workspace.resolve(workspace.display(candidate))
-        except SandboxError:
-            continue  # hidden, denied, or escaping: skip quietly
-        if resolved.stat().st_size > workspace.max_file_bytes:
-            continue
 
         scanned += 1
         try:
