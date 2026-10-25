@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from eval_scoring import Question
 from eval_workspace import ANSWER_KEY, LISTING_ONLY, sealed_workspace
-from holdout_eval import SESSIONS_UNDER_TEST
+from holdout_eval import SEARCH_MARKER, SEARCH_SUBJECT, SESSIONS_UNDER_TEST
 from session_eval import WALK
 
 from sandbox import _BINARY_SNIFF_BYTES, SandboxError, Workspace, get_workspace, set_workspace
@@ -52,11 +52,9 @@ LEAKED_SENTENCE = "The word 'budget' is used in the line"
 #: cannot be, and listing it here is the record that it was looked at.
 #:
 #: Measured, not assumed: the invariant below named every one of these.
-#: ``agent.budget.exhausted`` occurs in **five** reachable files, so the
-#: 'budget' question's expectation is not uniquely located in ``agent.py`` --
-#: a ``search_text`` over ``.`` still returns four files that are not the
-#: question's subject. Sealing the transcripts does not make that question
-#: clean; it only stops the answer sentence coming back.
+#: ``agent.budget.exhausted`` occurs in **five** reachable files. The question
+#: that used this expectation has been retired; this entry now documents the
+#: codebase's event-carrier spread rather than guarding a live expectation.
 EXPECTATION_CARRIERS: dict[str, frozenset[str]] = {
     "agent.budget.exhausted": frozenset(
         {
@@ -220,6 +218,45 @@ def test_the_questions_own_subjects_stay_readable(sealed: Workspace) -> None:
     """Sealing is worthless if it also seals what the questions ask about."""
     for subject in ("agent.py", "tests/fakes.py", "scripts/build_notebook.py", "sandbox.py"):
         assert sealed.resolve(subject).is_file(), f"{subject} became unreadable"
+
+
+def test_the_search_marker_has_one_reachable_carrier(sealed: Workspace) -> None:
+    carriers = [
+        path
+        for path in reachable_files(sealed)
+        if SEARCH_MARKER in path.read_text("utf-8", errors="ignore")
+    ]
+
+    assert len(carriers) == 1
+    assert sealed.display(carriers[0]) == SEARCH_SUBJECT
+
+
+def test_the_search_subject_expectation_has_no_reachable_carrier(sealed: Workspace) -> None:
+    carriers = [
+        path
+        for path in reachable_files(sealed)
+        if SEARCH_SUBJECT in path.read_text("utf-8", errors="ignore")
+    ]
+
+    assert carriers == []
+
+
+def test_eval_fixture_contains_only_the_six_existing_files_and_new_subject() -> None:
+    files = {
+        path.relative_to(PROJECT).as_posix()
+        for path in (PROJECT / "eval-fixture").rglob("*")
+        if path.is_file()
+    }
+
+    assert files == {
+        "eval-fixture/evaluation-context.txt",
+        "eval-fixture/fixture-purpose.txt",
+        "eval-fixture/listing-notes.txt",
+        "eval-fixture/stable-inventory.txt",
+        "eval-fixture/subject-summary.txt",
+        "eval-fixture/fixed-subject-marker/one-item.txt",
+        SEARCH_SUBJECT,
+    }
 
 
 def test_search_text_no_longer_finds_the_leaked_answer(transcripts: Workspace) -> None:

@@ -54,6 +54,24 @@ def _last_line(relative: str) -> str:
     return (PROJECT / relative).read_text(encoding="utf-8").splitlines()[-1].strip()
 
 
+SEARCH_MARKER = "cedar-ember-orbit-4821"
+
+
+def _search_subject(marker: str) -> str:
+    """Find the unique fixture containing the marker without storing its name."""
+    matches = [
+        path
+        for path in (PROJECT / "eval-fixture").iterdir()
+        if path.is_file() and marker in path.read_text(encoding="utf-8")
+    ]
+    if len(matches) != 1:
+        raise RuntimeError(f"expected one search subject, found {len(matches)}")
+    return matches[0].relative_to(PROJECT).as_posix()
+
+
+SEARCH_SUBJECT = _search_subject(SEARCH_MARKER)
+
+
 SESSIONS_UNDER_TEST: list[list[Question]] = [
     # -- arithmetic needing more than one step ---------------------------- #
     [Question("What is 15% of 2480, and then that result multiplied by 3?", "1116")],
@@ -93,8 +111,8 @@ SESSIONS_UNDER_TEST: list[list[Question]] = [
     ],
     [
         Question(
-            "Where is the word 'budget' used in agent.py?",
-            "agent.budget.exhausted",
+            f"Which file contains the marker {SEARCH_MARKER}?",
+            SEARCH_SUBJECT,
             "search_text",
         )
     ],
