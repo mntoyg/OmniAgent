@@ -1,8 +1,117 @@
 You are continuing work on **OmniAgent**, a local-only ReAct agent at
-`D:\code-project\OmniAgent` (private repo `mntoyg/OmniAgent`, branch `main`).
+`D:\code-project\OmniAgent` (**public** repo `mntoyg/OmniAgent`, MIT, branch
+`main` — public since `e06bb05`; this line said "private" until 2026-10-26).
 
 Reply to me in **Thai**. Code and commits in English. Commit and push after
-every work step.
+every work step. **Name the remote: `git push origin main`.** `main` tracks
+`organization/main`, so a bare `git push` goes to the wrong repository.
+
+---
+
+# HANDOFF — 2026-10-26, written at 66% context
+
+**Read this block, then `git log --oneline -20`. Everything below PART 1 is
+older and parts of it are struck through; trust the strikes.**
+
+The repository is **public**, MIT. `main` is at `5bc7425`. **636 tests**, ruff
+clean, mypy strict clean over **43** files. Three gates still:
+`.venv\Scripts\python.exe -m ruff check .`, `-m mypy`, `-m pytest` — full path,
+**never your own `-q`**.
+
+## Who does what now
+
+- **project manager** — this role. Writes briefs to `docs/pm/brief-NN-*.md`,
+  verifies by re-running, never writes production code.
+- **fullstack engineer** — a second Claude session. Currently **free**.
+- **SWE** and **security engineer** — both Codex, one session. Currently free.
+  **Codex cannot run model evaluations**: its sandbox returns `WinError 10013`
+  on `localhost`, confirmed twice on 2026-10-24 with Ollama answering for the
+  manager. Any brief needing a model run is split in advance — engineer
+  designs, manager measures.
+
+Each brief has a paste-ready twin at `docs/pm/brief-NN-codex-prompt.md` or
+`-engineer-prompt.md`. Nine briefs are done; read any of them for the shape.
+
+## What landed in this run
+
+| Brief | Outcome |
+| --- | --- |
+| 01 | Task 4 — the hosted-notebook framing, narrowed to one docstring |
+| 02 | the notebook is provably its generator's output |
+| 03 | `search_text` prunes: **26.6–31.2 s → 1.7–1.9 s**, byte-identical output |
+| 04 | a fourth gate for `omniagent-core`, on `ubuntu-24.04`, 4/4 |
+| 05 | the llama.cpp fingerprint is the LF blob, not a Windows CRLF artefact |
+| 06 | the gate's runner and action pinned |
+| 07 | no existing directory can be a stable eval subject — the empty candidate list |
+| 08 | `eval-fixture/` built; the replacement question is **10/10 over ten runs** |
+| 09 | both deterministic wrong answers traced to the model's own priors |
+
+Plan `2026-10-06-train-and-deploy` is **closed**, Tasks 1–4.
+
+**Current baseline: `omniagent-v2` scores 11/16, zero variance over ten runs,
+2026-10-24.** The old 12/16 is struck and not comparable. The failing set is
+byte-identical every run. **Wall clock is not stable although the score is:
+237 s to 1,508 s.**
+
+## Open, in the order I would take it
+
+1. **`agent.budget.exhausted` needs replacing, not repairing** — its subject
+   file documents past failures in three places. Longest-standing item.
+2. **A question scored on tool choice only can hide a total derailment.**
+   Found in brief 09's trace: nine steps of flailing recorded as "no check",
+   which is to say not wrong. Defect in the instrument.
+3. **`sandbox.resolve()` is what keeps `search_text` above a second** — 4,660
+   calls costing 1.13 s, 74% of what remains after brief 03. Needs
+   `sandbox.py`, which every brief so far has forbidden.
+4. **`_lines` and `file_info` do not agree by construction** — 2 vs 1 on a bare
+   CR and on a Unicode line separator. No current file is affected.
+5. **`NEXT_CHAT.md` is 984 lines** and still wants splitting. Mine to do.
+6. **Something external writes `.tmp-omnipatch-*` into the tree** — ~1 MB of
+   Bandit output, now gitignored (`34b65f2`) but **not identified**. A tool
+   that can write here can write anything here.
+7. `omniagent-core` is on branch `core-offline-runtime`, gated and green, not
+   merged. Merging is undecided.
+
+## Traps learned in this run, beyond the list at the end of this file
+
+- **Read the socket error code.** `10061` means nothing is listening — start
+  Ollama. `10013` means the environment is blocking the socket — reassign the
+  work. **Ollama does not survive across days; restart it at the start of any
+  session that measures.**
+- **Timing order matters.** Running a baseline first warms the page cache for
+  the candidate. I recorded a walk at 4.58 s that is really 1.6 s. Reverse the
+  order and run again.
+- **Score variance and clock variance are different measurements.** The
+  evaluation has zero score variance and a 6.4× clock spread.
+- **A brief's figures go stale.** Brief 03 sat three days and its baseline
+  moved by 2,068 paths. Re-measure before re-issuing.
+
+## My own brief-template defects, five of them — check these before issuing
+
+1. **The mutation table must not require a file the forbidden list forbids.**
+   Briefs 04, 05 and 08 each did. Two engineers had to invent a substitute.
+2. **Name the files a brief forbids, not only the ones it allows.** Brief 04
+   named only permissions, and a defect got worked around instead of reported.
+3. **`docs/` is sealed** — it is in `ANSWER_KEY`, so `reachable_files()`
+   returns 308 files with none under it. Briefs 07 and 08 told two engineers
+   that quoting a question there would fail the invariant. It would not. Keep
+   the no-quoting discipline as **defence in depth**, and say so.
+4. **The commit block must name the report file.** Brief 03 did not, and the
+   engineer had to ask whether to commit its own `## Result`.
+5. **Ask whether the engineer can run what the verification needs** before the
+   brief depends on it. Brief 05 assumed a WSL build; brief 07 assumed Ollama.
+
+## The standing rules that have paid for themselves
+
+Ten runs, not three. Write the prediction before the run — mine about a
+trailing slash was wrong on ten runs, and writing it first is why that is a
+result instead of a story. Mutation-check everything, restoring from a
+scratchpad copy, never `git checkout --` alone. A substring expectation grades
+characters, not answers. **`git log` and the test output are the truth; the
+engineer's summary is a claim** — every brief in this run was re-run by the
+manager, and three of them turned up something the report had not.
+
+---
 
 ---
 
