@@ -326,6 +326,20 @@ became 2-3; the data directory was 7-9 and became 3-9.
    **4,578 paths at 0.06–0.08 s**. Brief:
    `docs/pm/brief-03-search-text-prunes-as-it-descends.md`.
 
+   **DONE 2026-10-26, `0c04ffa`, verified in `7d79a8f`.** A search from `.`
+   went from **26.6–31.2 s to 1.7–1.9 s**, and the output is **byte-identical**
+   — checked by reimplementing the old candidate selection verbatim and
+   comparing output strings over ten cases, including the no-match case, a
+   single-file start and three subdirectory starts. `resolve()` calls fell from
+   roughly **74,000 to 4,660**, a 94% cut. Two tests guard the ordering: drop
+   the `sorted()` and both go red.
+   **The under-a-second target was missed and the reason is measured.**
+   `_searchable_files` takes 1.53 s of which `resolve()` is **1.13 s, 74%** —
+   the calls that legitimately have to happen, since the brief required asking
+   the workspace rather than copying its rules. **Going below a second means
+   making `sandbox.resolve()` cheaper, not pruning harder.** That is open and
+   unbriefed.
+
    One question still takes ~115 s and a full `holdout_eval` measured 544 s,
    inside the 600 s limit, so this remains worth doing for the clock and
    **not** a prerequisite.
