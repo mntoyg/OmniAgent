@@ -722,3 +722,38 @@ red; the three gate results with the new test count explained; whether
 data/holdout-runs.jsonl is reachable; the commit hashes; and anything you
 refuse to claim -- including that the ten runs are the manager's and are
 outstanding. Quote neither the marker, the filename, nor any question text. -->
+
+### ผลดำเนินการ
+
+- จุดเริ่มงานจริงคือ `main` ที่ `0bc25b6` ไม่ใช่ baseline `dbfc39e` ที่ระบุในส่วนประวัติของ brief; ระหว่าง Part 2 กับ Part 3 มี commit บันทึกของ project manager `7ba3fbc` เพิ่มเข้ามา
+- Part 1 เพิ่ม expectation ที่คำนวณตอน import จาก `_lines()` ให้คำถามเปรียบเทียบที่ `scripts/holdout_eval.py:102` และ `:145` โดยคงข้อความคำถามและ `judge()` ไว้ตามเดิม ลบ test ที่ตรึง defect แล้วแทนด้วย `test_no_question_is_scored_on_tool_choice_alone`, `test_each_comparison_expectation_is_computed_from_the_longer_file` และ `test_a_reversed_comparison_answer_still_grades_correct`. test ใหม่นี้บันทึก false positive ที่ตั้งใจเปิดไว้; ไม่ได้ปิดช่องด้วยการเปลี่ยนเกณฑ์
+- Retro-score จาก log เดิมสิบไฟล์ได้ `:102 = 10/10` และ `:145 = 1/10` ตามกติกาใหม่ ผลนี้เป็นคะแนนของคำตอบจาก wording เดิมเท่านั้น ไม่ใช่การวัด wording หรือ behavior ใหม่; คะแนนหนึ่งครั้งของ `:145` แสดงว่าผลมี variance ระหว่าง runs
+- Part 2 แทนคำถามเดิมที่ holdout และ session ด้วยคำถามค้นหาที่ `scripts/holdout_eval.py:116`; expectation หา path จากไฟล์ที่มี marker โดยไม่เก็บชื่อไฟล์เป็น literal ใน source หรือ test. `reachable_files()` พบ marker ในไฟล์เดียว และพบ expectation ในศูนย์ไฟล์. ตรวจเนื้อหา repository แล้วไม่พบ string ของชื่อไฟล์; ผลอ่านจริงยาว 178 ตัวอักษร. ไฟล์ใหม่นี้อธิบายจุดประสงค์ของ fixture, อยู่ในช่วง 173–202 ตัวอักษรของ fixture เดิม, และ `eval-fixture/` ไม่อยู่ใน `ANSWER_KEY`
+- สแกน JSONL ทั้งสามไฟล์ของชุดฝึก รวม 2,215 examples (1,404 + 658 + 153): contamination เป็นศูนย์ทั้ง marker และชื่อไฟล์. คง `EXPECTATION_CARRIERS["agent.budget.exhausted"]` กับ `test_the_budget_expectation_is_not_unique_to_its_subject` ไว้ พร้อมระบุว่าตอนนี้บันทึกข้อเท็จจริงของ codebase ไม่ได้ปกป้อง expectation ของคำถามที่เลิกใช้แล้ว
+- Part 3 เพิ่ม `question_record()` แบบ pure function; record มี index แบบ zero-based, ลำดับ tools, steps และ boolean ทั้งหกของ verdict. record ที่ append เพิ่ม short commit และ model แต่ไม่เก็บ question text หรือ expectation. test `test_question_record_has_only_index_tools_steps_and_verdict_booleans` ตรวจ schema โดยตรง. `data/holdout-runs.jsonl` ถูก ignore ด้วยกฎ `data/` ใน `.gitignore` และอ่านไม่ได้ผ่าน sealed workspace เพราะ `data` เป็น `LISTING_ONLY`; ผมไม่ได้เขียนข้อมูลลง `data/` หรือรัน evaluation
+
+### Mutations Ma–Mg
+
+- **Ma:** ใน scratchpad copy เปลี่ยน expectation เป็น literal แล้วเพิ่ม 300 บรรทัดในไฟล์ที่สั้นกว่า; `test_each_comparison_expectation_is_computed_from_the_longer_file` ล้ม. ค่าที่คำนวณเปลี่ยนตามไฟล์ที่โตขึ้น ส่วน literal ไม่เปลี่ยน
+- **Mb:** สลับผู้ชนะ/ผู้แพ้แล้ว test เดียวกันล้ม. Retro-score เป็น 10/10 ก่อนสลับ และยังเป็น 10/10 หลังสลับ เพราะคำตอบที่บันทึกไว้ทั้งสิบครั้งมีชื่อไฟล์ทั้งสอง. นี่ไม่ใช่ผล 0/10 ตามที่ brief คาดไว้ แต่เป็นผลที่สังเกตได้จริงและยืนยัน false-positive mode ที่ test ใหม่บันทึกไว้
+- **Mc:** ลด expectation เหลือ 10 ตัวอักษร. `test_no_unreviewed_file_holds_an_expected_answer` ยังผ่าน เพราะ `held_out_expectations()` กรองค่าที่สั้นกว่า `_DISTINCTIVE` (12) ออก; invariant จึงไม่ได้ตรวจค่านั้นเลย. ไม่มี test ล้ม — นี่คือช่องว่างที่ mutation นี้ตั้งใจเปิดเผย
+- **Md:** เพิ่ม carrier ชั่วคราวตัวที่สอง; `test_the_search_marker_has_one_reachable_carrier` ล้มด้วย carrier 2 แห่ง. ลบไฟล์ชั่วคราวแล้ว
+- **Me:** ใส่ expectation ลงในเนื้อหาของ subject ใหม่; `test_no_unreviewed_file_holds_an_expected_answer` ล้ม. คืน subject จาก scratchpad copy แล้วตรวจ hash ตรงกับต้นฉบับ
+- **Mf:** เพิ่มไฟล์ชั่วคราวใน fixture; `test_eval_fixture_contains_only_the_six_existing_files_and_new_subject` ล้มตามกฎ inventory. การเรียก `list_directory()` เห็น entry เพิ่ม แต่ expectation ของคำถาม listing ยังคงเดิม. ลบไฟล์ชั่วคราวแล้ว
+- **Mg:** เพิ่ม question field ลงใน record; `test_question_record_has_only_index_tools_steps_and_verdict_booleans` ล้ม. คืน source จาก scratchpad copy
+
+### Gates และ commits
+
+| Part | Ruff | Mypy | Pytest |
+| --- | --- | --- | --- |
+| 1 | ผ่าน | 43 source files | 638 passed |
+| 2 | ผ่าน | 43 source files | 641 passed |
+| 3 | ผ่าน | 44 source files | 642 passed |
+
+จำนวน tests เพิ่มจาก 636 เป็น 642 (+2 ใน Part 1, +3 ใน Part 2, +1 ใน Part 3); mypy เพิ่มจาก 43 เป็น 44 เพราะ Part 3 เพิ่ม test module ใหม่. การรัน `python -m pytest` ตามปกติครั้งแรกสร้าง temp directory ใน AppData ไม่ได้เพราะข้อจำกัดสิทธิ์ของ sandbox; รันซ้ำด้วย `--basetemp` ภายใน workspace แล้วได้ผลเต็มตามตาราง โดยใช้ executable path เต็มและไม่เพิ่ม `-q`.
+
+- Part 1: `2b740f5`
+- Part 2: `60183b8`
+- Part 3: `2ee2173`
+
+ผมไม่ได้รัน model, ไม่ได้เขียน prediction หรือ baseline ใหม่ และไม่อ้างตัวเลขจากการรันใด ๆ ของ project manager. ตามบันทึกที่เพิ่มใน brief การรันก่อนหน้าของ manager ถูกตัดเป็น void; การวัดใหม่สิบ runs และ baseline ยังเป็นงานของ manager และยัง outstanding.
