@@ -1,11 +1,13 @@
 # Brief 10 — no question is scored on nothing
 
-> **ON HOLD, 2026-10-26, and not to be pasted yet.** Writing the prediction at
-> the end of this file found a defect in **Part 1** of this brief: the rule it
-> specifies grades a comparison and instruction-following as one bit, which is
-> the thing `scripts/holdout_eval.py:7-12` says not to do. The fork is at
-> **"A defect in this brief, found by writing the prediction"** below and is
-> with the owner. Parts 2 and 3 are unaffected.
+> **Part 1 was rewritten on 2026-10-26 and the hold is lifted.** The first
+> version demanded a new answer format and graded it with a `none_of` list.
+> A probe settled it: **the reworded question derails the agent in three runs
+> out of three, where the original answers correctly in three out of three in
+> the same harness.** The rule is now a plain expectation on the longer file's
+> name and the question text does not change. The evidence, the control, and
+> what it cost the prediction are at the end of this file. Parts 2 and 3 were
+> never affected.
 
 **For the SWE.** Design and static verification only; the measurement half is
 the manager's and is named at the bottom. **No model run is needed for any
@@ -93,68 +95,36 @@ expectation is uniquely located in the file the question is about.
 
 ---
 
-# Part 1 — an expectation that can grade more than one substring
+# Part 1 — give the two comparisons an expectation
 
-## The interface
+**Rewritten 2026-10-26 after the probe at the end of this file.** The first
+version of this part asked for an `Expectation(all_of, none_of)` type and a
+question text demanding "the filename only". Measured: that rewording derails
+the agent in **3 runs out of 3**, while the original wording answers correctly
+in **3 out of 3** in the same harness. The new type is not needed and the
+question texts do not change.
 
-In `scripts/eval_scoring.py`:
+## What changes
 
-```python
-@dataclass(frozen=True)
-class Expectation:
-    """Several substrings at once, because one cannot grade a comparison."""
+The two comparison questions get an ordinary `expect`: **the name of the
+longer file**.
 
-    all_of: tuple[str, ...] = ()
-    none_of: tuple[str, ...] = ()
-```
+- `scripts/holdout_eval.py:77` — `expect` is the longer of
+  `tests/test_config.py` and `tests/test_sandbox.py`. Keep
+  `prefer_tool="file_info"`.
+- `scripts/holdout_eval.py:122` — `expect` is the longer of `tests/fakes.py`
+  and `scripts/build_notebook.py`, the two files its chain has just asked
+  about.
 
-- `Question.expect` becomes `str | Expectation | None`. A bare `str` keeps
-  behaving exactly as it does today, which is `Expectation(all_of=(s,))`.
-- `judge()` strips commas from the **answer** and from nothing else, as it
-  does now — the question bank writes `1116` and the model writes `1,116`.
-- `correct` is true when every string in `all_of` is present and no string in
-  `none_of` is.
-- A failing mark must name which half failed. `ANSWER WRONG` with no detail
-  turns a diagnosis into a re-run.
+**Computed at import time from `_lines()`, never written down.**
+`scripts/holdout_eval.py:39` exists for this and its docstring says why: a
+hardcoded count is wrong the moment the file is edited, and the figure then
+falls for a reason that is not the model. If someone adds 200 lines to the
+shorter file, the expectation must flip by itself. A test must prove it does —
+not by reading the constant back, but by asserting the expectation equals the
+name of whichever file `_lines()` says is longer.
 
-Also in `scripts/eval_scoring.py`, and it is **not optional**:
-
-```python
-def expected_strings(expect: str | Expectation | None) -> tuple[str, ...]:
-    """Every string that makes an answer right, for the leak invariant."""
-```
-
-`tests/test_eval_workspace.py:105` enumerates expectations with
-`len(question.expect)`, which is a `TypeError` on the new type and, worse,
-would quietly stop covering the new strings if someone "fixed" it with a
-`getattr`. It must go through `expected_strings` instead. **The seal has
-already moved a leak once rather than closing it** (`tests/test_eval_workspace.py:100-104`);
-this is the same shape.
-
-`expected_strings` returns **`all_of` only**. A `none_of` string is not an
-answer — it is the wrong file's name — and treating it as one would make
-`README.md` an unreviewed carrier for no reason. Say that in the docstring,
-because the next reader will ask.
-
-## The two comparisons
-
-Neither can be graded as it is written, and the reason is not the scorer: a
-comparison's answer names **both** files. Measured above —
-`tests/test_sandbox.py has more lines than tests/test_config.py` is a right
-answer containing the loser's name. So `none_of=(loser,)` would grade a right
-answer wrong **unless the question says what shape of answer it wants.**
-
-Therefore each comparison question's text must state the answer shape it will
-be graded on, and the rule must match that statement. One sentence, no more.
-Keep `prefer_tool="file_info"` on `:77`.
-
-**The winner and the loser are computed at import time from `_lines()`, never
-written down.** `scripts/holdout_eval.py:39` already exists for this and its
-docstring says why: a hardcoded count is wrong the moment the file is edited,
-and the figure then falls for a reason that is not the model. If someone later
-adds 200 lines to the shorter file, the expectation must flip by itself.
-
-Measured today, so you can check your import-time computation against it:
+Measured today, so you can check your computation against it:
 
 | File | Lines |
 | --- | --- |
@@ -164,36 +134,71 @@ Measured today, so you can check your import-time computation against it:
 | `scripts/build_notebook.py` | 512 |
 
 And measured under the seal, so you know these are clean expectations:
-`tests/test_sandbox.py`, `tests/test_config.py` and `scripts/build_notebook.py`
-each occur in **0** reachable files. `tests/fakes.py` occurs in **1** —
-`README.md`. That is the one that would need a carrier entry if it ever became
-an `all_of` string. Under the rule above it is a `none_of` string, so it does
-not. **Check this yourself rather than taking it from me; it is the kind of
-fact that moves.**
+`tests/test_sandbox.py` and `scripts/build_notebook.py` each occur in **0**
+reachable files. (`tests/fakes.py` occurs in `README.md`, which is why the
+loser's name is not used for anything.) Both are over `_DISTINCTIVE`, so the
+leak invariant covers them. **Check this yourself rather than taking it from
+me; it is the kind of fact that moves.**
 
-## Retro-score the ten recorded runs — the static result this brief exists for
+## The hole this leaves, which is recorded rather than closed
 
-Before any new run, score the **recorded answers** in
-`data/holdout-run01.log` … `run10.log` with the new rules, offline. A short
-throwaway script is fine; it does not ship.
+`tests/test_holdout_questions.py:20-24` says a substring cannot score a
+comparison, because "fakes.py is longer than build_notebook.py" contains every
+word a right answer would. **That reasoning is correct and the hole stays
+open: an answer that names the two files the wrong way round scores right.**
 
-Report, for each of the two comparison questions, what the new rule scores
-over the ten recorded answers. Then state plainly what it does **not** tell
-us: those answers were given to the **old** question text, so the retro-score
-measures the rule, not the rewritten question. It is an upper bound on nothing
-and a check that the rule separates "names the longer file" from "I ran out of
-reasoning steps". **Do not present it as a prediction of the new baseline.**
+It stays open because every way of closing it is worse:
+
+- forbidding the loser's name grades a **correct** answer wrong — measured,
+  all ten recorded answers name both files;
+- demanding a bare filename **destroys the question** — measured, 3 runs of 3;
+- matching phrases like "is longer than" grades characters, which is the
+  defect this whole brief exists to remove.
+
+So write the hole down where the next person will find it. Add a test in the
+style of `test_the_budget_expectation_is_not_unique_to_its_subject` — a
+measured weakness, asserted so that it cannot be forgotten and so that it
+fails loudly if someone later changes the rule. It should assert that the
+reversed answer **would** be graded correct. A test that documents a known
+hole is worth more than a comment: the comment goes stale, the test does not.
+
+**Report it in the figures too.** A question with a known false-positive mode
+is not the same as one without. Say so wherever the new baseline is quoted.
+
+## Retro-score the ten recorded runs
+
+Before anything is run again, score the **recorded answers** in
+`data/holdout-run01.log` … `run10.log` against the two new expectations,
+offline. A throwaway script is fine; it does not ship.
+
+I have done this and I am telling you the answer so that a disagreement is
+visible rather than averaged away: **`:77` scores 10/10 and `:122` scores
+1/10** — nine of its ten runs never name a file, and the tenth names the right
+one. **If you get different numbers, say so and stop.** One of us is wrong and
+it matters which.
+
+Then state what it does **not** tell us: those are the answers the old
+wording produced, and `:122`'s single pass means that question's score will
+vary between runs. It is the first non-zero score variance this project has
+measured and it is information, not noise.
 
 ## Tests that must fail first
 
 | Test | Where | Must fail before, pass after |
 | --- | --- | --- |
-| `judge` grades an `Expectation` with two `all_of` strings | `tests/test_eval_scoring.py` | new behaviour |
-| `judge` fails an answer containing a `none_of` string | `tests/test_eval_scoring.py` | new behaviour |
-| a bare `str` expectation is unchanged | `tests/test_eval_scoring.py` | regression guard — must pass **before and after** |
-| `expected_strings` returns every `all_of` string and no `none_of` string | `tests/test_eval_scoring.py` | new behaviour |
 | **no question is scored on tool choice alone** | `tests/test_holdout_questions.py` | replaces `test_only_the_comparisons_are_scored_on_tool_choice_alone` at `:29`, which asserts today's defect and must be **deleted, not weakened** |
-| no expectation string contains a comma | `tests/test_holdout_questions.py:49` | generalise it through `expected_strings` |
+| each comparison's expectation is the longer file by `_lines()`, not a constant | `tests/test_holdout_questions.py` | new behaviour |
+| a reversed answer is graded correct — the hole, asserted | `tests/test_holdout_questions.py` | new, and it must **pass**: it records what is true, not what we want |
+
+`tests/test_holdout_questions.py:49` — no expectation contains a comma —
+still applies unchanged, because every expectation is still a plain string.
+
+## What this part is not
+
+**No new type.** `judge()` and `Question` are untouched. If you find yourself
+editing `scripts/eval_scoring.py` in this part, stop: the probe removed the
+reason to. The file stays in the touchable list only for Part 3's record
+helper, if you choose to put it there.
 
 ---
 
@@ -306,18 +311,19 @@ named here rather than left to you.
 
 | # | Mutation | Must go red |
 | --- | --- | --- |
-| Ma | Drop `none_of` from `judge`'s condition | the comparison tests in `tests/test_eval_scoring.py` |
-| Mb | Swap the winner and the loser in one comparison's rule | that question's retro-score over the ten logs flips. **Report both numbers** |
-| Mc | Make `expected_strings` return `()` for an `Expectation` | `tests/test_eval_workspace.py`'s expectation invariant goes green while covering nothing — so **it must not**. If it stays green, the invariant is not covering the new type and that is a finding to report, not to work around |
+| Ma | Hardcode a comparison's expectation as a literal filename instead of computing it | the `_lines()` test from Part 1. Then add 300 lines to the shorter file in a scratchpad copy of the tree and confirm the **computed** expectation flips while the literal one does not |
+| Mb | Swap the winner and the loser in one comparison's expectation | that question's retro-score over the ten recorded logs flips from 10/10 to 0/10. **Report both numbers** |
+| Mc | Make a comparison's expectation shorter than `_DISTINCTIVE` (12) | the leak invariant stops covering it, silently. Nothing goes red — **that is the point**: find out what the invariant does and does not see, and say so in the report. Restore the real expectation afterwards |
 | Md | Put the new marker into a second file in `eval-fixture/` | the one-carrier test from Part 2 |
 | Me | Write the new expectation into a fixture file's **contents** | `test_no_unreviewed_file_holds_an_expected_answer`. Delete the string afterwards; do not commit it |
 | Mf | Add a seventh file to `eval-fixture/` | the listing question's expectation **does not move** (brief 08's Sc, re-run because this brief adds a file to that directory) |
 | Mg | Put a question text into the Part 3 record | the record test |
 
-**Mc is the one to take seriously.** A test asserting "this is refused" proves
-nothing if several independent guards would refuse it, and the mirror of that
-is a test that passes because it is checking nothing. Mc is how you find out
-which one you wrote.
+**Mc is the one to take seriously, and it is the only mutation here that goes
+green rather than red.** A test asserting "this is refused" proves nothing if
+several independent guards would refuse it, and the mirror of that is a test
+that passes because it is checking nothing. Mc is how you find out which one
+the leak invariant is. Report what you saw, not what you expected.
 
 # The three gates
 
@@ -394,26 +400,33 @@ the ten runs are outstanding and are the manager's.
 
 # The one thing that would make this wrong
 
-**A rule that grades phrasing instead of answers.** The whole point of this
-brief is that the old instrument graded characters; a `none_of` list tuned
-until the ten recorded answers come out right is the same mistake with more
-machinery. The defence is that each comparison question **says** what shape of
-answer it is graded on, and the rule checks exactly that and nothing else. If
-you find yourself adding a third or fourth `none_of` string to make a recorded
-answer pass, stop and report it — the question is wrong, not the rule.
+**Closing the comparison hole.** It is open on purpose and the reasons are
+measured, not argued: forbidding the loser's name fails a correct answer,
+demanding a bare filename destroys the question, and matching phrases grades
+characters. If you see a way to close it, **report it rather than building
+it** — the first version of this brief closed it and cost a question that
+works. A hole that is written down and asserted by a test is a known
+limitation; a hole that is patched with phrase matching is the defect this
+brief exists to remove.
 
-The second way: **the leak invariant stops covering the new expectation type.**
-Mc exists to make you watch that fail before you trust it. An invariant that
-passes because it iterates an empty tuple is worse than no invariant, because
-the figures quoted from it read as checked.
+The second way: **changing a question text to make it gradeable.** The probe
+below is three runs of evidence that this agent's behaviour is sensitive to
+the wording in ways nobody predicted. Part 1 touches expectations only. If a
+question text has to change for the instrument's convenience, that is a brief
+of its own with its own ten runs, not a line in this one.
+
+The third way: **an expectation the leak invariant cannot see.** Mc is how
+you find out what it sees. An invariant that passes because it is checking
+nothing is worse than no invariant, because the figures quoted from it read
+as checked.
 
 # Commit
 
 Three steps, one commit each, gates green at every step:
 
 ```
-git add scripts/eval_scoring.py tests/test_eval_scoring.py scripts/holdout_eval.py tests/test_holdout_questions.py tests/test_eval_workspace.py
-git commit -m "eval: grade a comparison with a rule, not a substring"
+git add scripts/holdout_eval.py tests/test_holdout_questions.py
+git commit -m "eval: the two comparisons get an expectation, and the hole gets a test"
 
 git add eval-fixture scripts/holdout_eval.py scripts/session_eval.py tests/test_eval_workspace.py tests/test_session_eval.py
 git commit -m "eval: a search subject whose answer is only in the subject"
@@ -540,6 +553,102 @@ and read whether the model answers with the filename alone. One question, not
 an evaluation — minutes, not the 40-to-250 of a full run. **The prediction
 above is written and committed first, so the probe can only confirm or refute
 it, not inform it.** This is the manager's half and needs Ollama restarted.
+
+# The probe, and what it did to the prediction — 2026-10-26, HEAD `58abbed`
+
+Ollama was already up — `10061` would have meant otherwise — and
+`omniagent-v2:latest` was loaded. **It had not been restarted today, which
+contradicts the handoff's "Ollama does not survive across days". Recorded as
+measured, not as a correction to the rule: one day is not a pattern.**
+
+Three runs of one question, `max_steps=8`, `temperature=0`, sealed workspace,
+fresh agent per run — the arrangement `holdout_eval` uses for this question.
+Three runs is a probe to choose a design, **not a measurement**; the standard
+is ten and this is not it.
+
+## The reworded question, as Part 1 originally specified it
+
+| Run | Steps | Answer |
+| --- | --- | --- |
+| 1 | 9 | "I ran out of reasoning steps before reaching an answer." |
+| 2 | 9 | "I ran out of reasoning steps before reaching an answer." |
+| 3 | 9 | "I ran out of reasoning steps before reaching an answer." |
+
+Identical tool sequence in all three:
+`list_directory, search_text, search_text, read_file, file_info, read_file, list_directory, search_text`.
+
+## The control — the original wording, same harness, same session
+
+Taken from the bank rather than retyped, so the control cannot drift from the
+question the ten recorded runs asked.
+
+| Run | Steps | Answer |
+| --- | --- | --- |
+| 1 | 9 | "tests/test_sandbox.py has more lines than tests/test_config.py." |
+| 2 | 9 | "tests/test_sandbox.py has more lines than tests/test_config.py." |
+| 3 | 9 | "tests/test_sandbox.py has more lines than tests/test_config.py." |
+
+**Byte-identical to the answer in all ten recorded runs.** The harness is
+sound, so the derailment belongs to the rewording.
+
+## What this settles
+
+**One sentence of added instruction turned a question the agent answers
+correctly into one it cannot finish.** Not a format it got wrong — a question
+it never reaches the end of. The first version of Part 1 would have cost a
+working question and reported it as the model's failure.
+
+A1 is dead. Part 1 is rewritten above as A2, and the hole stays open with a
+test to record it.
+
+## P1 was right in its verdict and wrong in its mechanism
+
+I predicted 0/10 **because the model would answer with a sentence naming both
+files**. It does not get that far. The reasoning was wrong and the number
+would have been right, which is the kind of correctness that teaches nothing
+— and I would never have known if the prediction had not been written down
+first.
+
+## One thing the control turned up that I was not looking for
+
+The recorded runs of 2026-10-24 show this question answered in **7 steps with
+6 tool calls**. Today, same question, same model, same arrangement: **9 steps
+with 8 tool calls**, the first six identical and three `search_text` calls on
+the end instead of one. The answer is unchanged.
+
+So the agent now spends two more steps reaching the same answer than it did
+two days ago. Candidates, none of them established: the `search_text` pruning
+in `0c04ffa`, the files added to the tree since (`eval-fixture/`'s six,
+`tests/test_search_text_pruning.py`), or both. **This is three runs of one
+question and it is not a finding yet.** It is a reason to expect the step
+total to move, and a reason not to treat the 2026-10-24 figures as the
+current behaviour of anything but the score.
+
+## The prediction, revised — and the revision is itself written before the run
+
+P1 and P2 stood on A1 and A1 is gone. Restating for A2, before any further
+run:
+
+- **P1′ — `:77` scores 10/10.** It is 3/3 in today's control and 10/10 in the
+  recorded logs, and nothing in Part 1 touches its text.
+- **P2′ — `:122` scores 0/10 or 1/10, and is the question that breaks zero
+  variance.** Nine of the recorded ten never name a file; one does.
+- **P3 unchanged** — the replacement search question scores 9/10 or 10/10,
+  and if it fails it fails by quoting the matched line instead of the
+  filename.
+- **P4′ — the total is 13/18, varying to 14/18.** 11 today, minus the
+  `'budget'` miss, plus the replacement, plus `:77`, plus `:122` at zero or
+  one. **Not 12/18**, which is what I predicted under A1.
+- **P5′ — the step total moves off 57 and I no longer expect to predict it.**
+  The control says two steps moved on one question without anyone changing
+  the agent.
+
+**And one new one. P6 — the 11/16 baseline will not reproduce at HEAD.** If
+two steps moved on a question nobody touched, the set is not the set that was
+measured on 2026-10-24. My ten runs will therefore produce a fresh baseline
+rather than a comparison, and I expect at least one of the other seventeen
+questions to have moved for reasons that are not this brief. **If 11 of the
+old 16 still pass, exactly, P6 is wrong and that is worth knowing too.**
 
 ## Result
 

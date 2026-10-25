@@ -1,12 +1,11 @@
 # Brief 10 — the paste-ready task for the SWE
 
-> **ON HOLD, 2026-10-26 — do not paste this yet.** Writing the ten-run
-> prediction found a defect in **Part 1**: the rule it specifies grades a
-> comparison and instruction-following as one bit, which
-> `scripts/holdout_eval.py:7-12` says not to do. The fork (A1 as issued, or A2
-> — the winner's name as a plain substring, which removes the need for the
-> `Expectation` type altogether) is with the owner. **Parts 2 and 3 are
-> unaffected and could be issued on their own.**
+> **Part 1 was rewritten on 2026-10-26 and the hold is lifted — this is ready
+> to paste.** The first version asked for a new `Expectation` type and a
+> reworded question. A probe killed it: the rewording derails the agent 3 runs
+> out of 3 where the original answers correctly 3 out of 3. There is no new
+> type; the two comparisons get an ordinary expectation and their texts do not
+> change.
 
 Paste everything below the line. The companion brief is
 `docs/pm/brief-10-no-question-is-scored-on-nothing.md`; `## Result` goes there.
@@ -43,13 +42,15 @@ deterministically and another passes for the wrong reason.
 
 ## The three parts
 
-1. **`Expectation(all_of, none_of)` in `scripts/eval_scoring.py`**, plus
-   `expected_strings()` so the leak invariant at
-   `tests/test_eval_workspace.py:105` keeps covering expectations it can no
-   longer measure with `len()`. A bare `str` must behave exactly as today.
-   Then rewrite the two comparison questions so each **states the shape of
-   answer it is graded on**, with the winner computed at import time from
-   `_lines()` and never written down.
+1. **The two comparison questions get an ordinary `expect`: the name of the
+   longer file**, computed at import time from `_lines()` and never written
+   down. No new type, no change to `judge()`, **no change to either question's
+   text** — a probe on 2026-10-26 showed that adding one sentence of
+   instruction to the question at `:77` derails the agent in 3 runs of 3,
+   where the original answers correctly in 3 of 3 in the same harness.
+   The comparison hole — an answer naming the two files the wrong way round
+   grades right — **stays open and gets a test that records it**, in the style
+   of `test_the_budget_expectation_is_not_unique_to_its_subject`.
 2. **Retire the `'budget'` question** at `scripts/holdout_eval.py:91` and
    `scripts/session_eval.py:84` — its expectation sits in five reachable files
    and its subject file argues against the answer in three places
@@ -73,19 +74,23 @@ is scored on tool choice alone — and watch the new one fail first.
 ## Retro-score the ten logs — the result this brief is really for
 
 Score the recorded answers in `data/holdout-run01.log` … `run10.log` against
-your new rules, offline, before anything is run again. Report both figures.
-Then say what it does **not** tell us: those answers were given to the old
-question text, so it measures the rule and not the rewritten question. **It is
-not a prediction of the new baseline.**
+the two new expectations, offline, before anything is run again.
+
+**The manager has already done this: `:77` is 10/10 and `:122` is 1/10.** If
+your numbers differ, say so and stop — one of us is wrong and it matters
+which. `:122`'s single pass means that question's score varies between runs,
+which is the first non-zero score variance this project has measured.
 
 ## Mutations — restore from a scratchpad copy, never `git checkout --` alone
 
-Ma drop `none_of` from the condition · Mb swap winner and loser and report
-both retro-scores · Mc make `expected_strings` return `()` and check the leak
-invariant goes red · Md put the marker in a second fixture file · Me write the
-new expectation into a fixture file's contents, then delete it · Mf add a
-seventh file to `eval-fixture/` and confirm brief 08's listing expectation does
-**not** move · Mg put a question text into the Part 3 record.
+Ma hardcode a comparison's expectation instead of computing it, then grow the
+shorter file in a scratchpad copy and watch only the computed one flip · Mb
+swap winner and loser and report both retro-scores · Mc shorten an expectation
+below `_DISTINCTIVE` and report what the leak invariant stops seeing · Md put
+the marker in a second fixture file · Me write the new expectation into a
+fixture file's contents, then delete it · Mf add a seventh file to
+`eval-fixture/` and confirm brief 08's listing expectation does **not** move ·
+Mg put a question text into the Part 3 record.
 
 **Md, Me and Mf need files the lists below otherwise forbid, and that is
 permitted for the mutation only.** Md and Mf create a throwaway file under
@@ -93,10 +98,10 @@ permitted for the mutation only.** Md and Mf create a throwaway file under
 file**, never one of the six already there, and restores it from the
 scratchpad copy. Nothing from a mutation reaches a commit.
 
-**Mc is the one to take seriously.** An invariant that passes because it
-iterates an empty tuple is worse than no invariant: the figures quoted from it
-read as checked. If Mc stays green, that is a finding to report, not to work
-around.
+**Mc is the one to take seriously, and it is the only one that goes green
+rather than red.** An invariant that passes while checking nothing is worse
+than no invariant: the figures quoted from it read as checked. Report what
+you saw, not what you expected.
 
 ## Files you may touch
 
@@ -159,8 +164,8 @@ what to, and why. A move you cannot explain is a finding.
 Three commits for the work, gates green at each, then a fourth for the report:
 
 ```
-git add scripts/eval_scoring.py tests/test_eval_scoring.py scripts/holdout_eval.py tests/test_holdout_questions.py tests/test_eval_workspace.py
-git commit -m "eval: grade a comparison with a rule, not a substring"
+git add scripts/holdout_eval.py tests/test_holdout_questions.py
+git commit -m "eval: the two comparisons get an expectation, and the hole gets a test"
 
 git add eval-fixture scripts/holdout_eval.py scripts/session_eval.py tests/test_eval_workspace.py tests/test_session_eval.py
 git commit -m "eval: a search subject whose answer is only in the subject"
@@ -177,9 +182,9 @@ work does not belong to. Name it: `git push origin main`.
 
 ## The one thing that would make this wrong
 
-**A rule that grades phrasing instead of answers.** A `none_of` list tuned
-until the ten recorded answers come out right is the old mistake with more
-machinery. Each comparison question **says** what shape of answer it is graded
-on, and the rule checks exactly that. If you are adding a third `none_of`
-string to make a recorded answer pass, stop and report it: the question is
-wrong, not the rule.
+**Closing the comparison hole, or changing a question's text to make it
+gradeable.** Both are forbidden here and both are measured, not argued: the
+first version of this brief closed the hole by demanding a new answer format,
+and three runs showed that it destroys a question the agent currently answers
+correctly. Part 1 touches expectations only. If you see a way to close the
+hole, **report it rather than building it.**
