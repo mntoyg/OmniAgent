@@ -45,6 +45,11 @@ def _lines(relative: str) -> str:
     return str(len((PROJECT / relative).read_text(encoding="utf-8").splitlines()))
 
 
+def _longer_file(first: str, second: str) -> str:
+    """Return the longer path, deriving the comparison from the current tree."""
+    return max((first, second), key=lambda relative: int(_lines(relative)))
+
+
 def _last_line(relative: str) -> str:
     return (PROJECT / relative).read_text(encoding="utf-8").splitlines()[-1].strip()
 
@@ -75,7 +80,7 @@ SESSIONS_UNDER_TEST: list[list[Question]] = [
     [
         Question(
             "Which has more lines, tests/test_config.py or tests/test_sandbox.py?",
-            None,
+            _longer_file("tests/test_config.py", "tests/test_sandbox.py"),
             "file_info",
         )
     ],
@@ -116,10 +121,10 @@ SESSIONS_UNDER_TEST: list[list[Question]] = [
             _lines("scripts/build_notebook.py"),
             "file_info",
         ),
-        # No expectation, and not an oversight: a substring cannot score a
-        # comparison. "fakes.py is longer than build_notebook.py" contains
-        # every word a right answer would. Scored on tool choice only.
-        Question("Which of the two is longer?", None),
+        Question(
+            "Which of the two is longer?",
+            _longer_file("tests/fakes.py", "scripts/build_notebook.py"),
+        ),
     ],
 ]
 
