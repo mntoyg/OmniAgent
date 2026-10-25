@@ -214,3 +214,106 @@ A second inline Python scan piped to ` .\.venv\Scripts\python.exe -` grouped col
 Struck the stale entry at `NEXT_CHAT.md:391` in place and rewrote it to say that v2 now resolves the ellipsis, receives the correct `file_info` count, but answers one higher; the tool axis passes and the expectation agrees with the tool. The previous entry was stale, not false when written. The static scans do not establish why the agent adds one. The tool-argument trace run is outstanding and belongs to the project manager.
 
 Gates: `ruff check .` passed; `mypy` passed with no issues across 42 files; full `pytest` passed, **633 passed**. Neither question nor expectation was edited. Commit and push are not yet performed.
+
+---
+
+## PM verification and the trace run — 2026-10-26
+
+### The engineer's half: accepted, and the negative results are the valuable part
+
+All three scans came back empty and were **reported as results rather than
+omitted**, which is what made the trace run worth doing:
+
+- **Prompt and tool descriptions:** nothing defines a line count as newlines
+  plus one, mentions that formula, or instructs an increment. The comments in
+  `agent.py` that discuss earlier line-count failures are **not** injected into
+  the runtime prompt — a distinction worth having checked.
+- **Line-count scan:** 2,215 examples (1,404 / 658 / 153 across the three
+  files). 9 line-count turns in the collected logs, all with a `file_info`
+  fact, **0 off by one**. 11 occurrences in the merged conversations, 9 with a
+  tool observation, **all 9 matching**. No answer phrases a count as newlines
+  plus one.
+- **Referent scan:** 17 + 18 follow-up contexts inspected. **No example
+  resolves a pronoun to an answer older than the immediately preceding step.**
+
+The `NEXT_CHAT.md:391` correction is right: struck in place, says **stale**
+rather than false, describes what now happens, and states that the cause was
+not established.
+
+**A separate finding the brief did not ask for and got anyway:** `_lines` uses
+`splitlines()` while `file_info` splits raw bytes on LF, and **they do not
+agree by construction** — they diverge on a bare CR and on a Unicode line
+separator, 2 against 1 in both cases. They agree for LF, CRLF and a missing
+final newline, so `scripts/build_notebook.py` is unaffected today. That is a
+helper-contract mismatch living under a question graded by one of the two. It
+is recorded and not fixed, correctly, since the brief permitted neither file.
+
+One inconsistency, minor: the report's last line says commit and push are not
+yet performed, while the report itself is inside commit `0a4f757`. The text was
+written before the commit and then committed with it. Nothing is wrong with the
+work.
+
+### The trace run — my half, and it closes both diagnoses
+
+Both sessions replayed with each step's **argument** printed, which the
+evaluation's own output does not show. Same agent construction as
+`holdout_eval.evaluate`: sealed workspace, `omniagent-v2`, `max_steps=8`,
+temperature 0.
+
+**The line count. The agent adds one on purpose.**
+
+    step 1: read_file('scripts/build_notebook.py')
+            -> Error: ... too long to return in full ...
+    step 2: file_info('scripts/build_notebook.py')
+            -> scripts/build_notebook.py: 512 lines, 16,767 bytes
+    step 3: get_current_time('')
+    step 4: calculate('512 + 1')
+            -> 512 + 1 = 513
+    ANSWER: scripts/build_notebook.py has 513 lines.
+
+It is handed **512** by the tool the question prefers, and then explicitly asks
+the calculator to add one. This is not a transcription slip or a parsing
+error: it is a deliberate increment of a count it already had. The hypothesis
+in this brief was that it reasons "lines = newlines + 1"; the trace supports it
+and does not prove the reasoning, because the thought text is not captured —
+but the *action* is unambiguous.
+
+Note `get_current_time` at step 3, between having the answer and spoiling it.
+That is `NEXT_CHAT.md` item 3's failure to stop after a correct first
+observation, visible in the same five steps.
+
+**The referent error. It skips back exactly one step.**
+
+    [chain step 3] calculate('1000 / 2')   -> 500   ANSWER: Half of 1000 is 500.
+    [chain step 4] calculate('1000 * 0.1') -> 100   ANSWER: 10% of 1000 is 100.
+
+Having just produced **500**, it feeds **1000** — the step-two result — into
+the next calculation. `NEXT_CHAT.md:390` described this from the answer text
+alone; the trace confirms it from the argument.
+
+### What this means, and it is not comfortable
+
+The scans found no inducement in the prompt and none in the 2,215 training
+examples, for either failure. The trace shows both are deliberate actions the
+model takes. **So both are the model's own priors, not something this project
+taught it** — the same category as the `4740` question, already recorded as an
+irreducible capability failure.
+
+**Neither is fixable by editing a question, a prompt, or the existing
+dataset.** The honest options are to record them as known model limits, or to
+address them at fine-tune time with targeted examples, which needs a fresh
+collection run. Rewriting either question so it passes would measure nothing.
+
+### A gap in the instrument, found in passing
+
+The third question of the line-count session is scored on tool choice only
+(`expect=None`). In the trace it derails completely for nine steps — it tries
+a `len` call inside `calculate`, passes two paths as one filename to
+`read_file` and `list_directory`, feeds raw JSON as a query string to
+`search_text` twice, and finally answers a question nobody asked, about whether
+`README.md` appears in either file.
+
+It is recorded as **"no check"**, which is to say *not wrong*. **A question
+scored on tool choice alone can hide a total derailment**, and this one does.
+That is a defect in the measurement, not in the model, and it belongs on the
+open list.
