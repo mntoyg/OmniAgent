@@ -21,6 +21,18 @@ measured state, the open list and the trap list — not a summary. Keep this
 block in step with it. The role from 2026-10-26 onward is **project manager
 and solution system architect**.
 
+**If the next chat is Codex rather than Claude, it starts from
+`docs/pm/pm2-codex-prompt.md`** — the same job, written for a second manager
+taking the chair when the Claude session is out of weekly budget or over 70%
+context. It differs where Codex differs: no model evaluation (`WinError
+10013` on `localhost`), no WSL/Linux build, no reading of Claude's weekly
+usage, and a third verdict, `REPORTED, UNVERIFIED (needs a model run)`, for a
+figure the acting manager could not re-run. It also carries the baton rule —
+`git log`, `git status`, find the briefs whose `## Result` is still the empty
+comment, declare which HEAD you took over at, and **never manage a brief you
+executed**. Whichever of the two prompts a session regenerates, it puts its
+name, the date and the HEAD at the top; keep both in step with this block.
+
 The repository is **public**, MIT. `main` is at `43aba72`. **642 tests**, ruff
 clean, mypy strict clean over **44** files. Three gates still:
 `.venv\Scripts\python.exe -m ruff check .`, `-m mypy`, `-m pytest` — full path,
@@ -29,7 +41,9 @@ clean, mypy strict clean over **44** files. Three gates still:
 ## Who does what now
 
 - **project manager** — this role. Writes briefs to `docs/pm/brief-NN-*.md`,
-  verifies by re-running, never writes production code.
+  verifies by re-running, never writes production code. **A second manager,
+  Codex, takes the chair when this session cannot** — started from
+  `docs/pm/pm2-codex-prompt.md`. Only one of them issues briefs at a time.
 - **fullstack engineer** — a second Claude session. Currently **free**.
 - **SWE** and **security engineer** — both Codex, one session. Currently free.
   **Codex cannot run model evaluations**: its sandbox returns `WinError 10013`
