@@ -834,3 +834,126 @@ more than it is worth; that is a decision for the owner, not a patch.
 
 The ten runs and the new baseline. P1′ to P6 are written and committed at
 `58abbed` and `7ba3fbc` and are not revised again.
+
+---
+
+# The ten runs — settled, 2026-10-26, HEAD `43aba72`
+
+Tree clean and HEAD unchanged across all ten, recorded by the command itself.
+Ten runs sequentially, never two at once.
+
+```
+run 01  13/18  6/7  5/5  1/1  54 steps  198s
+run 02  14/18  6/7  5/5  1/1  54 steps  205s
+run 03  14/18  6/7  5/5  1/1  54 steps  192s
+run 04  14/18  6/7  5/5  1/1  54 steps  194s
+run 05  14/18  6/7  5/5  1/1  54 steps  194s
+run 06  13/18  6/7  5/5  1/1  54 steps  206s
+run 07  13/18  6/7  5/5  1/1  54 steps  198s
+run 08  14/18  6/7  5/5  1/1  54 steps  204s
+run 09  14/18  6/7  5/5  1/1  54 steps  202s
+run 10  13/18  6/7  5/5  1/1  54 steps  200s
+```
+
+All ten, not a mean.
+
+## The new baseline
+
+**`omniagent-v2`: 13/18 four times and 14/18 six times, over ten runs,
+2026-10-26.** Tool pick 6/7, follow-up 5/5, honesty 1/1, **54 steps in every
+run**.
+
+This is **not** comparable with 11/16. Two questions became checkable and one
+was replaced; the denominator is a different denominator.
+
+## The first non-zero score variance this project has measured
+
+**Exactly one question varies, and it is the one P2′ named.** The failing set
+is one of two, and nothing else moves:
+
+| Failing set | Runs |
+| --- | --- |
+| 4, 9, 16, 18 | 6 |
+| 4, 9, 16, 18, **19** | 4 |
+
+Everything else is identical across ten runs, marks and steps alike.
+
+## The prediction, scored
+
+| | Claim | Verdict |
+| --- | --- | --- |
+| **P1′** | the comparison at index 8 scores 10/10 | **right** — 10/10, both axes |
+| **P2′** | index 19 scores 0/10 or 1/10 and is what breaks zero variance | **half right, and badly wrong on the number.** It is the question that varies. It scores **6/10**, not 0 or 1 |
+| **P3** | the replacement search question scores 9/10 or 10/10 | **right** — 10/10, both axes, and the failure mode I named did not appear |
+| **P4′** | the total is 13/18 varying to 14/18 | **right, exactly** |
+| **P5′** | the step total moves off 57 | **right** — 54, and identical in all ten |
+| **P6** | the 11/16 baseline will not reproduce at HEAD | **wrong** |
+
+### P6 is wrong, and being wrong settles something better
+
+**All fourteen untouched questions reproduce byte-identically — same marks,
+same step counts — against the ten runs of 2026-10-24.** Only the three
+questions this brief changed moved, plus index 11's step count, which went
+3 → 2 because Part 2 added a file to the directory it lists.
+
+So the instrument is stable and the old figures were sound. **The 9-step
+reading in my own probe was an artifact of asking one question alone instead
+of inside the evaluation** — in the full run that question takes 6 steps, and
+took 7 before the fixture file was added. A single-question probe does not
+reproduce the evaluation's conditions, and I built P6 on one.
+
+### P2′ is the interesting miss
+
+That question's text did not change and its step count did not change — 9 in
+all twenty runs, old and new. What changed is what it says at the end:
+
+| Answer | Then (10-24) | Now |
+| --- | --- | --- |
+| ran out of reasoning steps | 6 | 3 |
+| a false hedge — "cannot locate the files", for files it had just read | 3 | 1 |
+| names the longer file | 1 | **6** |
+
+Same question, same agent, same step budget, a different distribution. I
+cannot attribute it. The tree gained a fixture file and the sessions before it
+changed, and either could matter; so could the model simply being
+non-deterministic at temperature 0 on a 4 GB card, which this project has
+already measured.
+
+**What it does establish: the derailment is not deterministic, and the ten
+runs of 2026-10-24 reported it as though it were.** The old instrument scored
+it `no check` every time, so nothing could have shown this.
+
+## What the six passes actually contain
+
+Five of the six say the longer file is longer **by 391 lines**, and the two
+files differ by 390. The sixth states that file has **513** lines, where
+`file_info` reports 512 — the same +1 that brief 09 traced on index 18, in a
+different question.
+
+**So the instrument records `ANSWER OK` for answers carrying a wrong number.**
+That is the comparison hole working as documented: the expectation is the
+filename, and the filename is all it checks. It is not a new defect, it is the
+known one with a face on it.
+
+## The 6.4× clock spread did not reproduce
+
+**192 s to 206 s — a 1.07× spread**, against 237 s to 1,508 s on 2026-10-24.
+Same machine, same model, ten runs each.
+
+The old measurement was real and is not retracted; what is retracted is the
+reading of it. **The spread is not a property of this evaluation.** Whatever
+produced 1,508 s was outside it, and anyone sizing a run should use today's
+figure and expect it to be wrong when the machine is busy.
+
+## A defect in the new record file, found by reading it
+
+`data/holdout-runs.jsonl` holds **209 records: ten runs at `43aba72` and one
+at `60183b8`.** That eleventh run is the void one — the tree was dirty, Part 3
+was uncommitted, and the record carries the commit it was at while saying
+nothing about the tree.
+
+`scripts/session_eval.py:233` records the commit precisely so runs of
+different code are not pooled. **Same commit with a dirty tree defeats it.**
+The record needs a field for whether the working tree was clean, and anything
+reading the file needs to drop runs where it was not. Small, and it belongs to
+whoever next touches that file — logged here, not patched by me.

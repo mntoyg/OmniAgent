@@ -21,8 +21,8 @@ measured state, the open list and the trap list — not a summary. Keep this
 block in step with it. The role from 2026-10-26 onward is **project manager
 and solution system architect**.
 
-The repository is **public**, MIT. `main` is at `5bc7425`. **636 tests**, ruff
-clean, mypy strict clean over **43** files. Three gates still:
+The repository is **public**, MIT. `main` is at `43aba72`. **642 tests**, ruff
+clean, mypy strict clean over **44** files. Three gates still:
 `.venv\Scripts\python.exe -m ruff check .`, `-m mypy`, `-m pytest` — full path,
 **never your own `-q`**.
 
@@ -38,7 +38,7 @@ clean, mypy strict clean over **43** files. Three gates still:
   designs, manager measures.
 
 Each brief has a paste-ready twin at `docs/pm/brief-NN-codex-prompt.md` or
-`-engineer-prompt.md`. Nine briefs are done; read any of them for the shape.
+`-engineer-prompt.md`. Ten briefs are done; read any of them for the shape.
 
 ## What landed in this run
 
@@ -53,31 +53,60 @@ Each brief has a paste-ready twin at `docs/pm/brief-NN-codex-prompt.md` or
 | 07 | no existing directory can be a stable eval subject — the empty candidate list |
 | 08 | `eval-fixture/` built; the replacement question is **10/10 over ten runs** |
 | 09 | both deterministic wrong answers traced to the model's own priors |
+| 10 | no question is scored on nothing — open items 1 and 2 both closed |
 
 Plan `2026-10-06-train-and-deploy` is **closed**, Tasks 1–4.
 
-**Current baseline: `omniagent-v2` scores 11/16, zero variance over ten runs,
-2026-10-24.** The old 12/16 is struck and not comparable. The failing set is
-byte-identical every run. **Wall clock is not stable although the score is:
-237 s to 1,508 s.**
+**Current baseline: `omniagent-v2` scores 13/18 four times and 14/18 six
+times over ten runs, 2026-10-26 at `43aba72`** — 6/7 tool pick, 5/5
+follow-up, 1/1 honest, 54 steps every run. ~~11/16, zero variance,
+2026-10-24~~ is struck as a *baseline* and not as a measurement: brief 10
+made two questions checkable and replaced a third. It **did** reproduce —
+all fourteen untouched questions came back byte-identical, marks and steps.
+
+**This is the first non-zero score variance the project has measured.** One
+question moves, the comparison follow-up; the failing set is `{4, 9, 16, 18}`
+six times and `{4, 9, 16, 18, 19}` four times.
+
+~~Wall clock is not stable although the score is: 237 s to 1,508 s.~~ **Ten
+runs today: 192–206 s, a 1.07× spread.** The old measurement was real; the
+reading of it was not — the spread is not a property of the evaluation.
+
+**Full detail and the scored prediction:
+`docs/pm/brief-10-no-question-is-scored-on-nothing.md`.**
 
 ## Open, in the order I would take it
 
-1. **`agent.budget.exhausted` needs replacing, not repairing** — its subject
-   file documents past failures in three places. Longest-standing item.
-2. **A question scored on tool choice only can hide a total derailment.**
-   Found in brief 09's trace: nine steps of flailing recorded as "no check",
-   which is to say not wrong. Defect in the instrument.
+~~1. `agent.budget.exhausted` needs replacing~~ — **closed by brief 10.** Its
+replacement has one reachable carrier against five and scores 10/10 on both
+axes. The retired question had **never once called `search_text`** in ten
+runs, on the bank's only `search_text` question, so that tool had no coverage
+at all until now.
+
+~~2. A question scored on tool choice only can hide a total derailment~~ —
+**closed by brief 10.** 19 questions, 18 checkable, none scored on tool
+choice alone or on nothing.
+
+1. **The agent's ability to compare two files is measured by nothing.** The
+   answer axis checks that a filename appears and every answer names both
+   files, so a reversed answer scores right — measured, not argued. Every
+   route to closing it costs more than it is worth. **The owner's decision.**
+2. **The derailment is not deterministic.** The comparison follow-up answered
+   1/10 on 2026-10-24 and **6/10** on 2026-10-26, same text, same 9 steps.
+   Unattributed. Five of the six passes carry a wrong number and are recorded
+   as `ANSWER OK`.
 3. **`sandbox.resolve()` is what keeps `search_text` above a second** — 4,660
    calls costing 1.13 s, 74% of what remains after brief 03. Needs
    `sandbox.py`, which every brief so far has forbidden.
-4. **`_lines` and `file_info` do not agree by construction** — 2 vs 1 on a bare
+4. **`data/holdout-runs.jsonl` records the commit but not whether the tree was
+   clean**, and currently pools one void run with ten good ones.
+5. **`_lines` and `file_info` do not agree by construction** — 2 vs 1 on a bare
    CR and on a Unicode line separator. No current file is affected.
-5. **`NEXT_CHAT.md` is 984 lines** and still wants splitting. Mine to do.
-6. **Something external writes `.tmp-omnipatch-*` into the tree** — ~1 MB of
+6. **`NEXT_CHAT.md` is 1,101 lines** and still wants splitting. Mine to do.
+7. **Something external writes `.tmp-omnipatch-*` into the tree** — ~1 MB of
    Bandit output, now gitignored (`34b65f2`) but **not identified**. A tool
    that can write here can write anything here.
-7. `omniagent-core` is on branch `core-offline-runtime`, gated and green, not
+8. `omniagent-core` is on branch `core-offline-runtime`, gated and green, not
    merged. Merging is undecided.
 
 ## Traps learned in this run, beyond the list at the end of this file

@@ -103,20 +103,36 @@ brief depends on it. Codex also cannot run a WSL/Linux build.
 - **A test asserting "this is refused" proves nothing if several independent
   guards would refuse it.**
 
-# State as of 2026-10-26
+# State as of 2026-10-26, after brief 10
 
-HEAD `5b666ef`. **636 tests**, ruff clean, mypy strict clean over **43** files.
-Nine briefs done, in `docs/pm/`. Plan `2026-10-06-train-and-deploy` closed,
+HEAD `43aba72`. **642 tests**, ruff clean, mypy strict clean over **44** files.
+**Ten briefs done**, in `docs/pm/`. Plan `2026-10-06-train-and-deploy` closed,
 Tasks 1–4.
 
-- **Baseline: `omniagent-v2` scores 11/16, zero variance over ten runs**
-  (2026-10-24). The old 12/16 is struck and not comparable — three of the
-  things the set asks about moved under briefs 01, 02 and 08. The failing set
-  is byte-identical every run. **Wall clock is not stable although the score
-  is: 237 s to 1,508 s.**
+- **Baseline: `omniagent-v2` scores 13/18 four times and 14/18 six times over
+  ten runs** (2026-10-26, HEAD `43aba72`). Tool pick 6/7, follow-up 5/5,
+  honesty 1/1, **54 steps in every run**. ~~11/16, zero variance,
+  2026-10-24~~ — struck as a baseline, not as a measurement: brief 10 made two
+  questions checkable and replaced a third, so the denominator is a different
+  denominator. The 11/16 figure **did** reproduce: all fourteen untouched
+  questions came back byte-identical, marks and steps.
+- **The first non-zero score variance this project has measured.** Exactly one
+  question moves — the comparison follow-up — and the failing set is one of
+  two: `{4, 9, 16, 18}` six times, `{4, 9, 16, 18, 19}` four times.
+- **Wall clock: 192–206 s over ten runs, a 1.07× spread.** ~~237 s to
+  1,508 s, 6.4×~~ — the old reading is struck. That measurement was real; the
+  spread is **not** a property of the evaluation and did not reproduce.
+- **A comparison question's answer axis cannot tell a right answer from a
+  reversed one.** Measured: swapping the expectation leaves the retro-score at
+  10/10, because every answer the model gives names both files.
+  `test_a_reversed_comparison_answer_still_grades_correct` asserts it. The
+  point each comparison contributes is earned by naming a file, not by
+  comparing two.
 - `search_text` from `.` went **26.6–31.2 s to 1.7–1.9 s**, byte-identical
   output, `resolve()` calls from ~74,000 to 4,660.
-- `eval-fixture/` is the stable listing subject; its question is **10/10**.
+- `eval-fixture/` is the stable listing subject; its listing question is
+  **10/10** and its new search subject is **10/10 on both axes**. Its
+  inventory is now pinned by a test.
 - `omniagent-core` is on branch `core-offline-runtime` (`fd5176a`), gated by
   `.github/workflows/core.yml` on a pinned `ubuntu-24.04`, 4/4 hosted. **Not
   merged; merging is undecided.**
@@ -125,25 +141,48 @@ Tasks 1–4.
 
 # Open, in the order I would take it
 
-1. **`agent.budget.exhausted` needs replacing, not repairing** — its subject
-   file documents past failures in three places. Longest-standing item.
-2. **A question scored on tool choice only can hide a total derailment** —
-   found in brief 09's trace: nine steps of flailing recorded as "no check",
-   which is to say not wrong. A defect in the instrument.
+~~1. `agent.budget.exhausted` needs replacing~~ — **closed by brief 10.**
+Replaced with a search subject that has one reachable carrier against five,
+and it scores 10/10 on both axes. It also turned out the retired question had
+**never once called `search_text`** in ten runs, so the instrument had no
+coverage of that tool at all. It does now.
+
+~~2. A question scored on tool choice only can hide a total derailment~~ —
+**closed by brief 10.** No question is scored on tool choice alone or on
+nothing: 19 questions, 18 checkable. The derailment it was hiding is now
+visible and is item 1 below.
+
+1. **The agent's ability to compare two files is measured by nothing.** The
+   answer axis checks that a filename appears, and every answer names both
+   files, so a reversed answer scores right. Closing it costs more than it is
+   worth by every route examined — forbidding the loser's name fails correct
+   answers, demanding a bare filename destroys the question (3 runs of 3), and
+   phrase matching grades characters. **This is a decision about what the
+   instrument is for, and it is the owner's.**
+2. **The derailment is not deterministic and we only just found out.** The
+   comparison follow-up answered the question 1 time in 10 on 2026-10-24 and
+   **6 times in 10** on 2026-10-26, with an unchanged text and an unchanged
+   step count. Unattributed. Five of those six passes carry a wrong number
+   (391 where the files differ by 390; one says 513 where `file_info` says
+   512), and the instrument records them as `ANSWER OK`.
 3. **`sandbox.resolve()` is what keeps `search_text` above a second** — 4,660
    calls costing 1.13 s, 74% of what remains. Needs `sandbox.py`, which every
    brief so far has forbidden.
-4. **`_lines` and `file_info` do not agree by construction** — 2 vs 1 on a bare
+4. **`data/holdout-runs.jsonl` records the commit but not whether the tree was
+   clean.** It currently holds one void run pooled with ten good ones. Same
+   failure `session_eval.commit()` was written to prevent, one level deeper.
+5. **`_lines` and `file_info` do not agree by construction** — 2 vs 1 on a bare
    CR and on a Unicode line separator. No current file is affected.
-5. **`NEXT_CHAT.md` is 1,090 lines** and wants splitting. Yours.
-6. **Something external writes `.tmp-omnipatch-*` into the tree** — ~1 MB of
+6. **`NEXT_CHAT.md` is 1,101 lines** and wants splitting. Yours.
+7. **Something external writes `.tmp-omnipatch-*` into the tree** — ~1 MB of
    Bandit output, gitignored in `34b65f2` but **not identified**. A tool that
    can write here can write anything here.
-7. **Two model failures are irreducible without a new fine-tune**: the agent
+8. **Two model failures are irreducible without a new fine-tune**: the agent
    asks the calculator to add one to a line count it was just given, and
-   resolves a pronoun to the step-two result. Neither is taught by the prompt
-   or the 2,215 examples. Fixing them needs a fresh collection, not a question
-   rewrite.
+   resolves a pronoun to the step-two result. The +1 showed up again in brief
+   10's ten runs, in a question brief 09 never looked at. Fixing them needs a
+   fresh collection, not a question rewrite.
+
 
 # Traps that have already cost us
 
@@ -163,6 +202,12 @@ The full list is at the end of `NEXT_CHAT.md`. The ones that bite hardest:
   the candidate. Reverse the order and run again.
 - **A brief's figures go stale.** Brief 03 sat three days and its baseline
   moved by 2,068 paths. Re-measure before re-issuing.
+- **A single-question probe does not reproduce the evaluation's conditions.**
+  The same question took 9 steps asked alone and 6 inside the run. I built a
+  whole prediction (P6) on that 9 and it was wrong. A probe answers "does this
+  wording work at all"; it does not give you a figure.
+- **The measurement record pools runs by commit, which a dirty tree defeats.**
+  Confirm the tree is clean before a run, not only the commit.
 
 # Check this before issuing any brief — five defects of mine, three caught by engineers
 
