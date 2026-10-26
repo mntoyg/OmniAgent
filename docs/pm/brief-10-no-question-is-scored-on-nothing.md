@@ -957,3 +957,38 @@ different code are not pooled. **Same commit with a dirty tree defeats it.**
 The record needs a field for whether the working tree was clean, and anything
 reading the file needs to drop runs where it was not. Small, and it belongs to
 whoever next touches that file — logged here, not patched by me.
+
+---
+
+# Option C — the prediction, written before the probe, 2026-10-26 at `42a5377`
+
+The comparison axis is open item 1. Option C is a **closed choice**: the
+question names the two files and asks for one of them back, graded
+`all_of=(winner,)` with `none_of=(loser,)`. That is different from the
+wording the earlier probe killed, which was an open instruction appended to
+the question ("answer with the filename only"); a closed choice may behave
+differently, and it is minutes to find out.
+
+Tree clean, HEAD `42a5377`, no run of any kind made yet.
+
+**What I expect: C fails, and fails the same way A1 did.** Three runs, and
+my prediction is that **none of them replies with exactly one filename.**
+Specifically:
+
+1. The last probe showed this agent derails when the question grows a second
+   sentence — 3 runs of 3, nine steps, "I ran out of reasoning steps". I
+   expect at least two of three runs to do that again.
+2. Any run that does answer, I expect to answer in a sentence naming both
+   files, because that is what it does in all twenty recorded runs of this
+   question.
+
+**What would make me wrong, and it is the point of running it:** one run
+replying with a bare filename. That would mean the derailment is about the
+*kind* of instruction and not about the length of the question, and C becomes
+worth a brief and its own ten runs.
+
+**The decision rule, written before the data so it cannot be fitted to it:**
+3 of 3 bare filenames → C goes to a brief. 1 or 2 of 3 → not good enough; a
+question that works a third of the time measures the instrument's luck, so
+take A. 0 of 3 → A, and the comparison axis is closed as a question we
+cannot grade locally.
