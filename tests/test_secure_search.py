@@ -36,6 +36,25 @@ def _install(monkeypatch: pytest.MonkeyPatch, workspace: Workspace) -> None:
     monkeypatch.setattr(tools, "get_workspace", lambda: workspace)
 
 
+@pytest.mark.skipif(not hasattr(os, "O_PATH"), reason="BLOCKED: Linux O_PATH is required")
+def test_posix_feature_detection_survives_open_instrumentation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_open = os.open
+
+    def instrumented_open(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        return native_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", instrumented_open)
+    _PosixBackend._require_linux_features()
+
+
 @pytest.mark.parametrize("filesystem", ["overlay", "nfs", "fuse"])
 def test_posix_backend_rejects_unvalidated_filesystems(filesystem: str) -> None:
     with pytest.raises(SecureSearchError, match="unsupported Linux search filesystem"):
@@ -1009,4 +1028,7 @@ def test_posix_symlink_policy_refuses_internal_and_external_links(
     _install(monkeypatch, workspace)
 
     result = search_text(OUTSIDE)
-    assert "1 match" not in result
+    assert "1 match" in result
+    assert "inside.txt:1:" in result
+    assert "internal-link.txt" not in result
+    assert "external-link.txt" not in result

@@ -31,6 +31,10 @@ if TYPE_CHECKING:
     from sandbox import Workspace
 
 
+_POSIX_OPEN_SUPPORTS_DIR_FD = os.open in os.supports_dir_fd
+_POSIX_SCANDIR_SUPPORTS_FD = os.scandir in os.supports_fd
+
+
 def _os_function(name: str) -> Callable[..., Any]:
     return cast(Callable[..., Any], getattr(os, name))
 
@@ -221,8 +225,8 @@ class _PosixBackend(_Backend):
         if platform.system() != "Linux":
             raise SecureSearchError("secure POSIX search is supported on Linux only")
         if (
-            os.open not in os.supports_dir_fd
-            or os.scandir not in os.supports_fd
+            not _POSIX_OPEN_SUPPORTS_DIR_FD
+            or not _POSIX_SCANDIR_SUPPORTS_FD
             or not getattr(os, "O_PATH", 0)
             or not getattr(os, "O_NOFOLLOW", 0)
             or not getattr(os, "O_DIRECTORY", 0)
