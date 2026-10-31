@@ -39,6 +39,31 @@ class SecureSearchError(RuntimeError):
     """Secure traversal could not verify an object and therefore stopped."""
 
 
+def _ctypes_attribute(name: str) -> object:
+    return cast(object, getattr(ctypes, name, None))
+
+
+def _windows_library(name: str, *, use_last_error: bool = False) -> ctypes.CDLL:
+    loader = _ctypes_attribute("WinDLL")
+    if not callable(loader):
+        raise SecureSearchError("Windows DLL loader is unavailable")
+    return cast(Callable[..., ctypes.CDLL], loader)(name, use_last_error=use_last_error)
+
+
+def _windows_last_error() -> int:
+    getter = _ctypes_attribute("get_last_error")
+    if not callable(getter):
+        raise SecureSearchError("Windows last-error API is unavailable")
+    return cast(Callable[[], int], getter)()
+
+
+def _windows_format_error(code: int) -> str:
+    formatter = _ctypes_attribute("FormatError")
+    if not callable(formatter):
+        raise SecureSearchError("Windows error formatter is unavailable")
+    return cast(Callable[[int], str], formatter)(code)
+
+
 @dataclass
 class SearchHooks:
     """Deterministic race injection seam used by tests."""
@@ -432,8 +457,8 @@ class _WindowsBackend(_Backend):
         self.require_supported_architecture(platform.machine(), struct.calcsize("P") * 8)
         self.workspace = workspace
         self.hooks = hooks
-        self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        self.ntdll = ctypes.WinDLL("ntdll")
+        self.kernel32 = _windows_library("kernel32", use_last_error=True)
+        self.ntdll = _windows_library("ntdll")
         self._configure()
         self.root_identity: tuple[int, int, int] | None = None
         self.root_final = ""
@@ -576,15 +601,15 @@ class _WindowsBackend(_Backend):
         )
         if status < 0:
             code = int(self.ntdll.RtlNtStatusToDosError(status))
-            detail = ctypes.FormatError(code).strip()
+            detail = _windows_format_error(code).strip()
             raise OSError(code, f"NtCreateFile(relative child {name!r}): {detail}")
         if handle.value is None:
             raise SecureSearchError("NtCreateFile returned no child handle")
         return int(handle.value)
 
     def _error(self, operation: str) -> OSError:
-        code = ctypes.get_last_error()
-        return OSError(code, f"{operation}: {ctypes.FormatError(code).strip()}")
+        code = _windows_last_error()
+        return OSError(code, f"{operation}: {_windows_format_error(code).strip()}")
 
     def _query(
         self, handle: int, info_class: int, structure: type[ctypes.Structure]
@@ -813,7 +838,7 @@ class _WindowsBackend(_Backend):
             ok = self.kernel32.GetFileInformationByHandleEx(handle, info_class, buffer, len(buffer))
             info_class = self.FILE_INFO_ID_BOTH
             if not ok:
-                code = ctypes.get_last_error()
+                code = _windows_last_error()
                 if code == self.ERROR_NO_MORE_FILES:
                     break
                 raise self._error("GetFileInformationByHandleEx(directory)")
