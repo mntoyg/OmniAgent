@@ -194,3 +194,62 @@ work does not belong to. Name it: `git push origin main`.
 on the file as it stands today, verbatim; Ma-Md each with the test that went
 red; the three gate results with the test count explained and any movement
 you did not cause; the commit hashes; and anything you refuse to claim. -->
+
+### ผลการดำเนินงาน
+
+- เริ่มใน isolated worktree ที่สะอาดจาก `a0972638b798e21f49efe7241a39fa678f7eb017` ซึ่งตรงกับ `main` และ `origin/main` ณ จุดเริ่มต้น; `git status --porcelain` ว่างก่อนแก้ไข Prompt ระบุ `888623a` ซึ่งเป็นบรรพบุรุษก่อนหน้า 3 commits ที่เป็นเอกสาร PM เท่านั้น ไม่มี source หรือ test เปลี่ยนในช่วงนั้น
+- เรียก `main(["--report"])` โดยกำหนด `RUNS_PATH` ในหน่วยความจำให้ชี้ไปยัง `data/holdout-runs.jsonl` ของ checkout หลัก แล้วอ่านไฟล์อย่างเดียว ผลที่พิมพ์ออกมาทั้งหมด:
+
+```text
+209 records, 209 dropped, no cleanliness recorded
+Cleanliness: 0 clean, 0 dirty, 209 unknown (209 missing field).
+2 commit groups; each is reported separately.
+
+commit 43aba72: 190 records, 0 clean, 190 dropped
+  question 0: no surviving runs
+  question 1: no surviving runs
+  question 2: no surviving runs
+  question 3: no surviving runs
+  question 4: no surviving runs
+  question 5: no surviving runs
+  question 6: no surviving runs
+  question 7: no surviving runs
+  question 8: no surviving runs
+  question 9: no surviving runs
+  question 10: no surviving runs
+  question 11: no surviving runs
+  question 12: no surviving runs
+  question 13: no surviving runs
+  question 14: no surviving runs
+  question 15: no surviving runs
+  question 16: no surviving runs
+  question 17: no surviving runs
+  question 18: no surviving runs
+
+commit 60183b8: 19 records, 0 clean, 19 dropped
+  question 0: no surviving runs
+  question 1: no surviving runs
+  question 2: no surviving runs
+  question 3: no surviving runs
+  question 4: no surviving runs
+  question 5: no surviving runs
+  question 6: no surviving runs
+  question 7: no surviving runs
+  question 8: no surviving runs
+  question 9: no surviving runs
+  question 10: no surviving runs
+  question 11: no surviving runs
+  question 12: no surviving runs
+  question 13: no surviving runs
+  question 14: no surviving runs
+  question 15: no surviving runs
+  question 16: no surviving runs
+  question 17: no surviving runs
+  question 18: no surviving runs
+Settled means every applicable verdict axis agrees across retained runs.
+```
+
+- Mutation checks ทำให้ test ที่ระบุล้มเหลวทุกข้อ แล้วคืน source จาก scratchpad หลังแต่ละ mutation: Ma — `test_report_treats_missing_and_unknown_cleanliness_as_dropped`; Mb — `test_report_keeps_commit_groups_separate`; Mc — `test_question_record_has_only_index_tools_steps_and_verdict_booleans`; Md — `test_report_names_questions_with_no_surviving_runs_without_zero_over_zero`.
+- Gates รันด้วย `D:\code-project\OmniAgent\.venv\Scripts\python.exe` โดยไม่มี `-q` บน clean commit แต่ละส่วน: หลัง Part 1 ที่ `fe3238771835963e6b2363e77183904a9651e14d`, Ruff ผ่าน, mypy ผ่าน 44 files, pytest 644 passed; หลัง Part 2 ที่ `2c4657fd795d905b8c620617546a5645ba38f35a`, Ruff ผ่าน, mypy ผ่าน 44 files, pytest 648 passed. จำนวน 642 เดิมเพิ่ม 2 tests ใน Part 1 และอีก 4 ใน Part 2; ไม่พบ test-count movement จากงานอื่นใน worktree นี้
+- Commits: `fe3238771835963e6b2363e77183904a9651e14d` (Part 1); `2c4657fd795d905b8c620617546a5645ba38f35a` (Part 2); รายงานนี้อยู่ใน commit ที่สามตามลำดับที่ brief กำหนด
+- ไม่ได้รันโมเดลและไม่ได้เขียน `data/**`; จึงไม่อ้างคะแนนหรืออันดับของโมเดล เพราะ report กรองทั้ง 209 records ออกเนื่องจากไม่มีข้อมูล cleanliness
