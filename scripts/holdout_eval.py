@@ -23,6 +23,7 @@ import json
 import subprocess
 import sys
 import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -289,9 +290,138 @@ def evaluate(model: str) -> Score:
 
     return score
 
-if __name__ == "__main__":
-    results = {model: evaluate(model) for model in sys.argv[1:]}
+
+def _read_run_records(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    with path.open(encoding="utf-8") as handle:
+        return [json.loads(line) for line in handle if line.strip()]
+
+
+def _clean_state(record: dict[str, Any]) -> str:
+    value = record.get("clean")
+    if value is True:
+        return "clean"
+    if value is False:
+        return "dirty"
+    return "unknown"
+
+
+def _question_index(record: dict[str, Any]) -> int | str:
+    try:
+        return int(record["index"])
+    except (KeyError, TypeError, ValueError):
+        return "unknown"
+
+
+def _question_sort_key(index: int | str) -> tuple[int, int, str]:
+    if isinstance(index, int):
+        return (0, index, "")
+    return (1, 0, index)
+
+
+def report(path: Path | None = None) -> None:
+    """Print only clean records, keeping each code version in its own group."""
+    run_path = RUNS_PATH if path is None else path
+    records = _read_run_records(run_path)
+    if not records:
+        print(f"no runs recorded in {run_path}")
+        return
+
+    clean_count = sum(_clean_state(record) == "clean" for record in records)
+    dirty_count = sum(_clean_state(record) == "dirty" for record in records)
+    unknown_count = len(records) - clean_count - dirty_count
+    missing_count = sum("clean" not in record for record in records)
+    dropped = len(records) - clean_count
+    record_word = "record" if len(records) == 1 else "records"
+    if missing_count == len(records) and clean_count == dirty_count == 0:
+        summary = f"{len(records)} {record_word}, {dropped} dropped, no cleanliness recorded"
+    else:
+        summary = (
+            f"{len(records)} {record_word}, {dropped} dropped "
+            f"({dirty_count} dirty, {unknown_count} unknown)"
+        )
+    print(summary)
+    print(
+        f"Cleanliness: {clean_count} clean, {dirty_count} dirty, "
+        f"{unknown_count} unknown ({missing_count} missing field)."
+    )
+
+    by_commit: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        by_commit[str(record.get("commit", "unknown"))].append(record)
+    group_word = "commit group" if len(by_commit) == 1 else "commit groups"
+    print(f"{len(by_commit)} {group_word}; each is reported separately.")
+
+    for version, group in sorted(by_commit.items()):
+        retained = [record for record in group if _clean_state(record) == "clean"]
+        group_record_word = "record" if len(group) == 1 else "records"
+        print(
+            f"\ncommit {version}: {len(group)} {group_record_word}, "
+            f"{len(retained)} clean, "
+            f"{len(group) - len(retained)} dropped"
+        )
+        grouped: defaultdict[int | str, list[dict[str, Any]]] = defaultdict(list)
+        for record in group:
+            grouped[_question_index(record)].append(record)
+        for index, question_records in sorted(
+            grouped.items(), key=lambda item: _question_sort_key(item[0])
+        ):
+            question_runs = [
+                record for record in question_records if _clean_state(record) == "clean"
+            ]
+            if not question_runs:
+                print(f"  question {index}: no surviving runs")
+                continue
+            _report_question(index, question_runs)
+
+    print("Settled means every applicable verdict axis agrees across retained runs.")
+
+
+def _report_question(index: int | str, records: list[dict[str, Any]]) -> None:
+    axes = (
+        ("answer", "correct", "checkable"),
+        ("tool", "right_tool", "tool_expected"),
+        ("honesty", "admitted", "honest_expected"),
+    )
+    cells: list[str] = []
+    outcomes: list[list[bool]] = []
+    for label, passed_key, expected_key in axes:
+        applicable = [record for record in records if record.get(expected_key) is True]
+        if not applicable:
+            cells.append(f"{label}=n/a")
+            continue
+        values = [record.get(passed_key) is True for record in applicable]
+        outcomes.append(values)
+        cells.append(f"{label}={sum(values)}/{len(values)}")
+
+    steps = [
+        record["steps"]
+        for record in records
+        if isinstance(record.get("steps"), int) and not isinstance(record.get("steps"), bool)
+    ]
+    step_range = f"{min(steps)}-{max(steps)}" if steps else "n/a"
+    settled = bool(outcomes) and all(len(set(values)) == 1 for values in outcomes)
+    settlement = "yes" if settled else "no" if outcomes else "n/a"
+    print(
+        f"  question {index}: {len(records)} run(s); {'; '.join(cells)}; "
+        f"steps={step_range}; settled={settlement}"
+    )
+
+
+def main(argv: list[str] | None = None) -> None:
+    arguments = sys.argv[1:] if argv is None else argv
+    if "--report" in arguments:
+        if arguments != ["--report"]:
+            raise SystemExit("--report cannot be combined with model names")
+        report()
+        return
+    results = {model: evaluate(model) for model in arguments}
     print(f"\n{'=' * 78}\nSUMMARY\n{'=' * 78}")
     print(header())
     for model, score in results.items():
         print(row(model, score))
+
+
+if __name__ == "__main__":
+    main()
