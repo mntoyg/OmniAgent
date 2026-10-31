@@ -24,6 +24,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 PROJECT = Path(__file__).resolve().parent.parent
 RUNS_PATH = PROJECT / "data" / "holdout-runs.jsonl"
@@ -186,16 +187,36 @@ def _short_commit() -> str:
     return done.stdout.strip() or "unknown"
 
 
+def _tree_clean() -> bool | str:
+    """Return True/False from Git status, or unknown if it cannot be read."""
+    try:
+        done = subprocess.run(  # noqa: S603 - fixed argv, no shell, no user input
+            ["git", "-C", str(PROJECT), "status", "--porcelain"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return not bool(done.stdout.strip())
+
+
 def _append_question_record(
     measurement: dict[str, int | list[str] | bool | str],
     model: str,
     version: str,
+    clean: bool | str,
+    path: Path = RUNS_PATH,
 ) -> None:
-    record = dict(measurement)
-    record["commit"] = version
-    record["model"] = model
-    RUNS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with RUNS_PATH.open("a", encoding="utf-8") as handle:
+    record: dict[str, Any] = {
+        **measurement,
+        "commit": version,
+        "model": model,
+        "clean": clean,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")
 
 
@@ -210,6 +231,7 @@ def evaluate(model: str) -> Score:
     )
     score = Score()
     version = _short_commit()
+    clean = _tree_clean()
     question_index = 0
 
     print(f"\n{'=' * 78}\n{model}\n{'=' * 78}", flush=True)
@@ -233,6 +255,7 @@ def evaluate(model: str) -> Score:
                     question_record(index, verdict, len(agent.last_trace), tools_called),
                     model,
                     version,
+                    clean,
                 )
                 score.errors.append(f"{question.text}: {exc}")
                 print(f"  !! {question.text}\n     {exc}", flush=True)
@@ -250,6 +273,7 @@ def evaluate(model: str) -> Score:
                 question_record(index, verdict, len(agent.last_trace), tools_called),
                 model,
                 version,
+                clean,
             )
             score.apply(verdict)
             marks = list(verdict.marks)
@@ -264,7 +288,6 @@ def evaluate(model: str) -> Score:
             )
 
     return score
-
 
 if __name__ == "__main__":
     results = {model: evaluate(model) for model in sys.argv[1:]}
