@@ -19,7 +19,6 @@ import operator
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -30,9 +29,9 @@ from sandbox import (
     MAX_READ_CHARS,
     TRUNCATION_NOTE,
     SandboxError,
-    Workspace,
     get_workspace,
 )
+from secure_search import SearchHooks, SecureSearchError, iter_search_files
 
 _log = obs.get_logger("tools")
 
@@ -536,43 +535,8 @@ def list_directory(path: str = ".") -> str:
     return f"{shown}:\n" + "\n".join(f"  {entry}" for entry in entries)
 
 
-def _searchable_files(workspace: Workspace, start: Path) -> list[Path]:
-    """Files under `start` the workspace admits, pruned branch by branch.
-
-    Resolving every path under a hidden directory and discarding it afterwards
-    is 87% of a search from the root.
-
-    The idiom is the one ``tests/test_eval_workspace.py:113 reachable_files``
-    already pays for: ask the workspace, and prune on its refusal rather than
-    on a second copy of ``sandbox.py``'s rules, which would drift.
-    """
-    found: list[tuple[Path, Path]] = []
-    stack = [start]
-    while stack:
-        try:
-            children = list(stack.pop().iterdir())
-        except OSError:
-            continue  # vanished or unreadable, which rglob would also skip
-        for child in children:
-            try:
-                resolved = workspace.resolve(workspace.display(child))
-            except SandboxError:
-                continue  # hidden, denied or escaping: prune the whole branch
-            if child.is_dir():
-                if not child.is_symlink():
-                    stack.append(child)  # rglob does not follow one either
-            elif child.is_file() and resolved.stat().st_size <= workspace.max_file_bytes:
-                found.append((child, resolved))
-
-    # Sorted on the walked path, not the resolved one, because that is the key
-    # the global ``sorted(rglob("*"))`` used. MAX_SEARCH_FILES and
-    # MAX_SEARCH_MATCHES truncate, so this order decides which matches the
-    # model is shown, and the collected examples were recorded against it.
-    return [resolved for _, resolved in sorted(found)]
-
-
-def search_text(  # noqa: PLR0912 - a guard per thing that can go wrong in a walk
-    query: str, path: str = "."
+def search_text(
+    query: str, path: str = ".", *, _hooks: SearchHooks | None = None
 ) -> str:
     """Find a literal substring in the files under a path.
 
@@ -589,35 +553,31 @@ def search_text(  # noqa: PLR0912 - a guard per thing that can go wrong in a wal
     except SandboxError as exc:
         return f"Error: {exc}"
 
-    if start.is_file():
-        # Admitted by the resolve above; only the byte limit is left to apply.
-        candidates = [start] if start.stat().st_size <= workspace.max_file_bytes else []
-    else:
-        candidates = _searchable_files(workspace, start)
     matches: list[str] = []
     scanned = 0
     lowered = needle.lower()
 
-    for resolved in candidates:
-        if len(matches) >= MAX_SEARCH_MATCHES or scanned >= MAX_SEARCH_FILES:
-            break
-
-        scanned += 1
-        try:
-            blob = resolved.read_bytes()
-        except OSError:
-            continue
-        if b"\0" in blob[:_BINARY_SNIFF_BYTES]:
-            continue
-
-        shown = workspace.display(resolved)
-        for number, line in enumerate(
-            blob.decode("utf-8", errors="replace").splitlines(), start=1
+    try:
+        for candidate_path, blob in iter_search_files(
+            workspace, path or ".", hooks=_hooks, max_files=MAX_SEARCH_FILES
         ):
-            if lowered in line.lower():
-                matches.append(f"{shown}:{number}: {line.strip()[:200]}")
-                if len(matches) >= MAX_SEARCH_MATCHES:
-                    break
+            if len(matches) >= MAX_SEARCH_MATCHES or scanned >= MAX_SEARCH_FILES:
+                break
+
+            scanned += 1
+            if b"\0" in blob[:_BINARY_SNIFF_BYTES]:
+                continue
+
+            shown = workspace.display(candidate_path)
+            for number, line in enumerate(
+                blob.decode("utf-8", errors="replace").splitlines(), start=1
+            ):
+                if lowered in line.lower():
+                    matches.append(f"{shown}:{number}: {line.strip()[:200]}")
+                    if len(matches) >= MAX_SEARCH_MATCHES:
+                        break
+    except SecureSearchError as exc:
+        return f"Error: search stopped safely: {exc}"
 
     if not matches:
         return f"No match for {needle!r} in {workspace.display(start)} ({scanned} files searched)."

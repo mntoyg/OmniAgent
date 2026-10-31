@@ -15,17 +15,28 @@ Threat                            Mitigation
 ``..\\..\\Windows\\System32``       under the workspace root.
 Absolute paths outside the root   Same check; an absolute path is allowed
                                   only if it lands inside the workspace.
-Symlinks and junctions out        ``Path.resolve()`` follows them before the
-                                  containment check, so the target is what
-                                  gets tested, not the link.
+Symlinks and junctions in search  search_text rejects symlinks and all
+                                  Windows reparse points, including junctions,
+                                  before reading. It traverses and reads through
+                                  pinned handles; other file tools retain their
+                                  existing path-based behavior.
 Secrets inside the workspace      Dot-files and dot-directories (``.env``,
                                   ``.git``, ``.ssh``) are refused outright,
                                   as are key/certificate suffixes.
 The agent reading its own log     The active log file is denied explicitly,
                                   so earlier conversations cannot be fed
                                   back into the context and the dataset.
-Huge files exhausting memory      Size is checked before the read, and the
-                                  returned text is capped.
+Concurrent path mutation         search_text revalidates pinned root and
+                                  ancestor handles, entry identity and final
+                                  paths before traversal and after reads.
+                                  Windows support is 64-bit AMD64 on a local
+                                  fixed NTFS volume. Case-sensitive directories,
+                                  remote volumes, and unknown architectures fail
+                                  closed; other filesystems are unsupported.
+Huge files exhausting memory      search_text checks handle metadata and
+                                  performs a bounded read from that same handle.
+                                  Other file tools retain their existing
+                                  path-based behavior.
 Binary files flooding context     A NUL byte in the first chunk rejects it.
 Devices (``CON``, ``NUL``,        Only regular files pass; everything else
 ``\\\\.\\PhysicalDrive0``)            is refused.
@@ -36,7 +47,22 @@ ReDoS via a search pattern        There is no regex: search is literal
 ================================  ==========================================
 
 The workspace root defaults to the current directory and is set once at
-startup. Nothing here writes, renames or deletes -- these tools are read-only
+startup. The concurrent-writer guarantee described above is scoped to search_text.
+read_file, file_info and list_directory retain their existing path-based
+behavior and are not covered by that guarantee. Hard links with multiple
+links are rejected by search_text where link-count metadata is available.
+POSIX entries are checked before open and special files are rejected; because
+POSIX has no portable metadata-only open primitive, the concurrent-writer
+threat model assumes writers cannot create device nodes. Deployment ACLs must
+still prevent the agent process from reading sensitive files outside the
+workspace. A hard-link count is defense in depth, not proof of origin.
+search_text retains at most 100,000 directory entries per traversal and reads at
+most MAX_SEARCH_FILES files. Entry, depth, or verification failures return a
+fail-closed error; ordinary result limits preserve sorted traversal order.
+The pinned-handle checks do not provide snapshot consistency: a concurrent
+in-place writer can change file bytes during a bounded read.
+
+Nothing here writes, renames or deletes -- these tools are read-only
 by construction.
 """
 
@@ -92,13 +118,35 @@ class Workspace:
     max_read_chars: int = MAX_READ_CHARS
     denied_paths: frozenset[Path] = field(default_factory=frozenset)
     listing_only_paths: frozenset[Path] = field(default_factory=frozenset)
+    _root_device: int | None = field(default=None, repr=False, compare=False)
+    _root_inode: int | None = field(default=None, repr=False, compare=False)
 
     @classmethod
-    def at(cls, root: Path | str, **kwargs: object) -> Workspace:
+    def at(
+        cls,
+        root: Path | str,
+        *,
+        max_file_bytes: int = MAX_FILE_BYTES,
+        max_read_chars: int = MAX_READ_CHARS,
+        denied_paths: frozenset[Path] = frozenset(),
+        listing_only_paths: frozenset[Path] = frozenset(),
+    ) -> Workspace:
         resolved = Path(root).expanduser().resolve()
+        try:
+            root_info = resolved.stat()
+        except OSError as exc:
+            raise SandboxError(f"workspace root is not accessible: {resolved}") from exc
         if not resolved.is_dir():
             raise SandboxError(f"workspace root is not a directory: {resolved}")
-        return cls(root=resolved, **kwargs)  # type: ignore[arg-type]
+        return cls(
+            root=resolved,
+            max_file_bytes=max_file_bytes,
+            max_read_chars=max_read_chars,
+            denied_paths=denied_paths,
+            listing_only_paths=listing_only_paths,
+            _root_device=root_info.st_dev,
+            _root_inode=root_info.st_ino,
+        )
 
     # -- path admission ---------------------------------------------------- #
 

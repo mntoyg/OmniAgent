@@ -20,8 +20,12 @@ concurrency:
 
 jobs:
   gates:
-    name: ruff / mypy / pytest
-    runs-on: ubuntu-latest
+    name: ruff / mypy / pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     timeout-minutes: 10
 
     steps:
@@ -33,6 +37,30 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      - name: Verify Linux secure-search prerequisites
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo -n true
+          test -d /proc/self/fd
+          test "$(findmnt --noheadings --output FSTYPE --target "$GITHUB_WORKSPACE")" = ext4
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          required = ("O_PATH", "O_NOFOLLOW", "O_DIRECTORY", "O_CLOEXEC")
+          missing = [name for name in required if not hasattr(os, name)]
+          if missing or os.open not in os.supports_dir_fd or os.scandir not in os.supports_fd:
+              raise SystemExit(f"Linux secure-search APIs unavailable: {missing}")
+          fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+          try:
+              fdinfo = Path(f"/proc/self/fdinfo/{fd}").read_text(encoding="ascii")
+              if not any(line.startswith("mnt_id:") for line in fdinfo.splitlines()):
+                  raise SystemExit("Linux procfs fdinfo mnt_id is unavailable")
+          finally:
+              os.close(fd)
+          PY
+
       - name: Install
         run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
 
@@ -43,4 +71,4 @@ jobs:
         run: mypy
 
       - name: Test
-        run: pytest
+        run: pytest -rs --basetemp=.pytest-tmp
