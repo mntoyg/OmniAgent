@@ -184,6 +184,7 @@ class _PosixBackend(_Backend):
         self.workspace = workspace
         self.hooks = hooks
         self.root_identity: tuple[int, int] | None = None
+        self.root_mount_id: int | None = None
         self.pinned_handles: dict[int, int] = {}
 
     @staticmethod
@@ -237,14 +238,19 @@ class _PosixBackend(_Backend):
     @staticmethod
     def _verify_procfd(handle: int) -> None:
         procfd_directory = Path("/proc/self/fd")
+        procfdinfo_directory = Path("/proc/self/fdinfo")
         try:
             info = procfd_directory.stat()
+            fdinfo = procfdinfo_directory.stat()
         except OSError as exc:
             raise SecureSearchError("Linux procfs descriptor paths are unavailable") from exc
-        if not stat.S_ISDIR(info.st_mode):
-            raise SecureSearchError("Linux procfs descriptor path is not a directory")
-        if _PosixBackend._filesystem_type(procfd_directory, info.st_dev) != "proc":
-            raise SecureSearchError("Linux procfd path is not on procfs")
+        if not stat.S_ISDIR(info.st_mode) or not stat.S_ISDIR(fdinfo.st_mode):
+            raise SecureSearchError("Linux procfs descriptor paths are not directories")
+        if (
+            _PosixBackend._filesystem_type(procfd_directory, info.st_dev) != "proc"
+            or _PosixBackend._filesystem_type(procfdinfo_directory, fdinfo.st_dev) != "proc"
+        ):
+            raise SecureSearchError("Linux descriptor paths are not on procfs")
         flags = (
             os.O_RDONLY
             | _PosixBackend._linux_flag("O_DIRECTORY")
@@ -258,6 +264,25 @@ class _PosixBackend(_Backend):
                 raise SecureSearchError("procfs descriptor promotion changed object identity")
         finally:
             os.close(probe)
+
+    @staticmethod
+    def _mount_id(handle: int) -> int:
+        try:
+            lines = Path(f"/proc/self/fdinfo/{handle}").read_text(encoding="ascii").splitlines()
+        except OSError as exc:
+            raise SecureSearchError("Linux descriptor mount identity is unavailable") from exc
+        values: list[int] = []
+        for line in lines:
+            key, separator, value = line.partition(":")
+            if key != "mnt_id" or not separator:
+                continue
+            try:
+                values.append(int(value.strip()))
+            except ValueError as exc:
+                raise SecureSearchError("Linux descriptor mount identity is invalid") from exc
+        if len(values) != 1 or values[0] <= 0:
+            raise SecureSearchError("Linux descriptor mount identity is unavailable")
+        return values[0]
 
     @staticmethod
     def _linux_flag(name: str) -> int:
@@ -286,6 +311,7 @@ class _PosixBackend(_Backend):
                 self._filesystem_type(self.workspace.root, info.st_dev)
             )
             self.root_identity = (info.st_dev, info.st_ino)
+            self.root_mount_id = self._mount_id(fd)
             self._verify_procfd(fd)
             self.verify_root(fd)
         except BaseException:
@@ -306,6 +332,8 @@ class _PosixBackend(_Backend):
             raise SecureSearchError("workspace root was replaced or renamed")
         if (current.st_dev, current.st_ino) != self.root_identity:
             raise SecureSearchError("workspace root identity changed")
+        if self.root_mount_id is None or self._mount_id(handle) != self.root_mount_id:
+            raise SecureSearchError("workspace root mount identity changed")
 
     def enumerate(self, handle: int, max_entries: int) -> list[tuple[str, int]]:
         names: list[tuple[str, int]] = []
@@ -340,6 +368,8 @@ class _PosixBackend(_Backend):
                 or pinned.st_dev != root_device
             ):
                 raise SecureSearchError("entry identity or volume could not be verified")  # noqa: TRY301 - close pinned fd below
+            if self.root_mount_id is None or self._mount_id(path_handle) != self.root_mount_id:
+                raise SecureSearchError("entry crosses the workspace mount boundary")  # noqa: TRY301 - close pinned fd below
             if self.hooks and self.hooks.after_posix_pin:
                 self.hooks.after_posix_pin(name, path_handle)
             io_flags = (

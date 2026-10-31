@@ -177,6 +177,7 @@ perform; it is a leak that gets written down and then trained on.
 | `../../../etc/passwd`, `..\..\Windows\System32`, absolute paths outside the root | Paths are resolved for admission and must land inside the workspace. `search_text` then walks the admitted tree through verified directory handles. |
 | Symlinks and junctions | `read_file` and `list_directory` resolve the requested path before checking containment. `search_text` refuses every symlink and every Windows reparse point, including links that point back inside the workspace. It reads bytes only from the object whose handle it verified. |
 | Concurrent changes while searching | The race-resistant guarantee applies to `search_text` only. It uses handle-relative enumeration and a bounded read from the verified file object. Windows support is 64-bit AMD64 on a local fixed NTFS volume. POSIX support is Linux with `O_PATH`, procfs, and ext4; unsupported platforms and filesystems fail closed. Other file tools retain path-based behavior and do not have this concurrent-writer guarantee. |
+| Nested and bind mounts | Linux compares each pinned candidate and traversed entry's kernel mount ID with the pinned workspace root. This rejects nested mounts even when a bind mount has the same `st_dev`; missing mount identity fails closed. |
 | Secrets inside the workspace | Dot-files and dot-directories (`.env`, `.git`, `.ssh`) are refused, as are credential suffixes (`.pem`, `.key`, `.p12`, …) and names (`id_rsa`, `credentials`). |
 | The agent reading its own log back | The active `--log-file` is denied, so earlier conversations cannot re-enter the context and the dataset. |
 | Huge files exhausting memory | `read_file` refuses files over 100 KB and caps returned text at 16 000 characters. `search_text` checks the verified handle size and reads at most 100 KB plus one byte to detect growth. It scans at most 400 files and returns at most 50 matches. |
@@ -205,6 +206,9 @@ into the dataset.
 The handle checks do not provide snapshot consistency: another process can
 change a regular file's contents in place while `search_text` is reading it.
 Hard-link checks are defense in depth and do not prove where a file originated.
+Linux mount-boundary checks require procfs `/proc/self/fdinfo/<fd>` entries with
+an `mnt_id` field; there is no fallback when the kernel or procfs does not
+provide it.
 The application should also run with operating-system permissions that prevent
 it from reading sensitive paths outside the workspace.
 

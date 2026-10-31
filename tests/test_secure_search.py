@@ -61,6 +61,92 @@ def test_posix_backend_rejects_unvalidated_filesystems(filesystem: str) -> None:
         _PosixBackend.require_supported_filesystem(filesystem)
 
 
+def test_posix_mount_identity_unavailable_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fdinfo_without_mount_id(
+        _path: Path,
+        encoding: str | None = None,
+        errors: str | None = None,
+    ) -> str:
+        del encoding, errors
+        return "pos:\t0\nflags:\t0100000\n"
+
+    monkeypatch.setattr(Path, "read_text", fdinfo_without_mount_id)
+    with pytest.raises(SecureSearchError, match="mount identity is unavailable"):
+        _PosixBackend._mount_id(123)
+
+
+@pytest.mark.skipif(not hasattr(os, "O_PATH"), reason="BLOCKED: Linux O_PATH is required")
+def test_posix_same_filesystem_bind_mount_is_outside_workspace_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret = outside / "secret.txt"
+    secret.write_text(OUTSIDE, encoding="utf-8")
+    mounted = root / "external-bind"
+    mounted.mkdir()
+    if outside.stat().st_dev != root.stat().st_dev:
+        message = "BLOCKED: bind-mount source and workspace are not on the same filesystem"
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            pytest.fail(message)
+        pytest.skip(message)
+
+    sudo = shutil.which("sudo")
+    mount = shutil.which("mount")
+    umount = shutil.which("umount")
+    if sudo is None or mount is None or umount is None:
+        message = "BLOCKED: sudo, mount, and umount are required for the bind-mount regression"
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            pytest.fail(message)
+        pytest.skip(message)
+
+    mounted_ok = False
+    mount_result = subprocess.run(  # noqa: S603 - fixed sudo/mount command and pytest-owned paths
+        [sudo, "-n", mount, "--bind", str(outside), str(mounted)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if mount_result.returncode:
+        message = f"BLOCKED: bind-mount setup failed: {mount_result.stderr.strip()}"
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            pytest.fail(message)
+        pytest.skip(message)
+    mounted_ok = True
+    try:
+        workspace = Workspace.at(root)
+        _install(monkeypatch, workspace)
+        read_paths: list[Path] = []
+        hooks = SearchHooks(before_read=read_paths.append)
+
+        direct = search_text(OUTSIDE, "external-bind/secret.txt", _hooks=hooks)
+        traversal = search_text(OUTSIDE, _hooks=hooks)
+
+        assert direct.startswith("Error: search stopped safely:")
+        assert "mount boundary" in direct
+        assert OUTSIDE not in direct
+        assert "No match for" in traversal
+        assert "secret.txt" not in traversal
+        assert read_paths == []
+    finally:
+        if mounted_ok:
+            unmount_result = subprocess.run(  # noqa: S603 - fixed sudo/umount command and pytest-owned path
+                [sudo, "-n", umount, "--", str(mounted)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if unmount_result.returncode:
+                pytest.fail(
+                    "BLOCKED: bind-mount cleanup failed: "
+                    f"{unmount_result.stderr.strip()}"
+                )
+
+
 def _directory_link(link: Path, target: Path) -> None:
     if os.name == "nt":
         command = os.environ.get("COMSPEC", r"C:\Windows\System32\cmd.exe")

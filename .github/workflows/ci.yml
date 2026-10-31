@@ -46,11 +46,19 @@ jobs:
           test "$(findmnt --noheadings --output FSTYPE --target "$GITHUB_WORKSPACE")" = ext4
           python - <<'PY'
           import os
+          from pathlib import Path
 
           required = ("O_PATH", "O_NOFOLLOW", "O_DIRECTORY", "O_CLOEXEC")
           missing = [name for name in required if not hasattr(os, name)]
           if missing or os.open not in os.supports_dir_fd or os.scandir not in os.supports_fd:
               raise SystemExit(f"Linux secure-search APIs unavailable: {missing}")
+          fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+          try:
+              fdinfo = Path(f"/proc/self/fdinfo/{fd}").read_text(encoding="ascii")
+              if not any(line.startswith("mnt_id:") for line in fdinfo.splitlines()):
+                  raise SystemExit("Linux procfs fdinfo mnt_id is unavailable")
+          finally:
+              os.close(fd)
           PY
 
       - name: Install
