@@ -5,6 +5,8 @@ from __future__ import annotations
 import ctypes
 import os
 import queue
+import shutil
+import stat
 import subprocess
 import threading
 from pathlib import Path
@@ -18,15 +20,26 @@ from secure_search import (
     SearchHooks,
     SecureSearchError,
     _is_windows_device_name,
+    _os_function,
+    _PosixBackend,
     _WindowsBackend,
 )
 from tools import search_text
 
 OUTSIDE = "OUTSIDE_MARKER_9f7c"
+_O_PATH = getattr(os, "O_PATH", 0)
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
 
 
 def _install(monkeypatch: pytest.MonkeyPatch, workspace: Workspace) -> None:
     monkeypatch.setattr(tools, "get_workspace", lambda: workspace)
+
+
+@pytest.mark.parametrize("filesystem", ["overlay", "nfs", "fuse"])
+def test_posix_backend_rejects_unvalidated_filesystems(filesystem: str) -> None:
+    with pytest.raises(SecureSearchError, match="unsupported Linux search filesystem"):
+        _PosixBackend.require_supported_filesystem(filesystem)
 
 
 def _directory_link(link: Path, target: Path) -> None:
@@ -63,6 +76,31 @@ def _outside_marker(tmp_path: Path) -> tuple[Path, Path]:
     marker = outside / "secret.txt"
     marker.write_text(OUTSIDE, encoding="utf-8")
     return outside, marker
+
+
+def _make_null_device(path: Path) -> None:
+    if os.name != "posix" or not hasattr(os, "mknod") or not hasattr(os, "O_PATH"):
+        pytest.skip("BLOCKED: Linux device-node creation is unavailable")
+    try:
+        os.mknod(path, stat.S_IFCHR | 0o600, _os_function("makedev")(1, 3))
+    except PermissionError:
+        if os.environ.get("GITHUB_ACTIONS") != "true":
+            pytest.skip("BLOCKED: this user cannot create a character device node")
+        sudo = shutil.which("sudo")
+        if sudo is None:
+            pytest.fail("BLOCKED: CI has no sudo executable for device-node creation")
+        result = subprocess.run(  # noqa: S603 - fixed sudo/mknod command and test-owned path
+            [sudo, "-n", "mknod", str(path), "c", "1", "3"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode:
+            pytest.fail(
+                "BLOCKED: CI could not create the required device node with sudo: "
+                f"{result.stderr.strip()}"
+            )
+    assert stat.S_ISCHR(path.lstat().st_mode)
 
 
 def test_directory_replaced_by_external_junction_or_symlink_before_open(
@@ -488,8 +526,8 @@ def test_total_directory_entry_enumeration_is_bounded(
 def test_fifo_does_not_block_posix_search(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    if os.name != "posix":
-        pytest.skip("BLOCKED: POSIX FIFO behavior cannot run on this platform")
+    if os.name != "posix" or not hasattr(os, "O_PATH"):
+        pytest.skip("BLOCKED: Linux O_PATH FIFO behavior cannot run on this platform")
     root = tmp_path / "workspace"
     root.mkdir()
     mkfifo = getattr(os, "mkfifo", None)
@@ -500,7 +538,7 @@ def test_fifo_does_not_block_posix_search(
     _install(monkeypatch, workspace)
     result_queue: queue.Queue[str] = queue.Queue()
     original_open = os.open
-    opened_fifo = False
+    fifo_open_flags: list[int] = []
 
     def record_open(
         path: str | os.PathLike[str],
@@ -509,9 +547,8 @@ def test_fifo_does_not_block_posix_search(
         *,
         dir_fd: int | None = None,
     ) -> int:
-        nonlocal opened_fifo
         if path == "hostile-pipe":
-            opened_fifo = True
+            fifo_open_flags.append(flags)
         return original_open(path, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr(os, "open", record_open)
@@ -526,7 +563,247 @@ def test_fifo_does_not_block_posix_search(
     except queue.Empty:
         pytest.fail("search blocked while opening a FIFO entry")
     assert "never-present" in result
-    assert not opened_fifo, "special FIFO should be rejected before os.open"
+    assert fifo_open_flags == [_O_PATH | _O_NOFOLLOW | _O_CLOEXEC]
+
+
+@pytest.mark.skipif(not hasattr(os, "O_PATH"), reason="BLOCKED: Linux O_PATH is required")
+def test_posix_device_node_is_classified_before_any_readable_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    device = root / "hostile-device"
+    _make_null_device(device)
+    workspace = Workspace.at(root)
+    _install(monkeypatch, workspace)
+    original_open = os.open
+    device_open_flags: list[int] = []
+
+    def record_open(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if path == "hostile-device":
+            device_open_flags.append(flags)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", record_open)
+    result = search_text("never-present")
+    assert "never-present" in result
+    assert device_open_flags == [_O_PATH | _O_NOFOLLOW | _O_CLOEXEC]
+
+
+@pytest.mark.skipif(not hasattr(os, "O_PATH"), reason="BLOCKED: Linux O_PATH is required")
+def test_posix_device_replacement_after_pin_promotes_only_the_pinned_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    victim = root / "victim.txt"
+    victim.write_text("PINNED_CONTENT", encoding="utf-8")
+    saved = root / "victim-saved.txt"
+    device = tmp_path / "replacement-device"
+    _make_null_device(device)
+    workspace = Workspace.at(root)
+    _install(monkeypatch, workspace)
+    pinned_identity: tuple[int, int, int] | None = None
+    pinned_fd: int | None = None
+    changed = False
+    promoted_identities: list[tuple[int, int, int]] = []
+    direct_open_flags: list[int] = []
+    original_open = os.open
+
+    def replace_after_pin(name: str, handle: int) -> None:
+        nonlocal changed, pinned_fd, pinned_identity
+        if name != victim.name or changed:
+            return
+        info = os.fstat(handle)
+        pinned_fd = handle
+        pinned_identity = (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
+        victim.rename(saved)
+        device.rename(victim)
+        changed = True
+
+    def record_open(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if path == victim.name:
+            direct_open_flags.append(flags)
+        fd = original_open(path, flags, mode, dir_fd=dir_fd)
+        if pinned_fd is not None and path == f"/proc/self/fd/{pinned_fd}":
+            info = os.fstat(fd)
+            promoted_identities.append((info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)))
+        return fd
+
+    monkeypatch.setattr(os, "open", record_open)
+    result = search_text(
+        "PINNED_CONTENT",
+        _hooks=SearchHooks(after_posix_pin=replace_after_pin),
+    )
+    assert changed, "the file-to-device replacement hook must run after O_PATH classification"
+    assert pinned_identity is not None
+    assert promoted_identities == [pinned_identity]
+    assert direct_open_flags == [_O_PATH | _O_NOFOLLOW | _O_CLOEXEC]
+    assert result.startswith("Error: search stopped safely:")
+    assert "1 match" not in result
+
+
+@pytest.mark.skipif(not hasattr(os, "O_PATH"), reason="BLOCKED: Linux O_PATH is required")
+def test_posix_fifo_replacement_after_pin_does_not_open_or_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    victim = root / "victim.txt"
+    victim.write_text("PINNED_CONTENT", encoding="utf-8")
+    fifo = tmp_path / "replacement-fifo"
+    _os_function("mkfifo")(fifo)
+    workspace = Workspace.at(root)
+    _install(monkeypatch, workspace)
+    pinned_identity: tuple[int, int, int] | None = None
+    pinned_fd: int | None = None
+    changed = False
+    promoted_identities: list[tuple[int, int, int]] = []
+    direct_open_flags: list[int] = []
+    original_open = os.open
+
+    def replace_after_pin(name: str, handle: int) -> None:
+        nonlocal changed, pinned_fd, pinned_identity
+        if name != victim.name or changed:
+            return
+        info = os.fstat(handle)
+        pinned_fd = handle
+        pinned_identity = (info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode))
+        victim.rename(root / "victim-saved.txt")
+        fifo.rename(victim)
+        changed = True
+
+    def record_open(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        if path == victim.name:
+            direct_open_flags.append(flags)
+        fd = original_open(path, flags, mode, dir_fd=dir_fd)
+        if pinned_fd is not None and path == f"/proc/self/fd/{pinned_fd}":
+            info = os.fstat(fd)
+            promoted_identities.append((info.st_dev, info.st_ino, stat.S_IFMT(info.st_mode)))
+        return fd
+
+    monkeypatch.setattr(os, "open", record_open)
+    result_queue: queue.Queue[str] = queue.Queue()
+
+    def run_search() -> None:
+        result_queue.put(
+            search_text("PINNED_CONTENT", _hooks=SearchHooks(after_posix_pin=replace_after_pin))
+        )
+
+    worker = threading.Thread(target=run_search, daemon=True)
+    worker.start()
+    try:
+        result = result_queue.get(timeout=2)
+    except queue.Empty:
+        pytest.fail("search blocked after a pinned file was replaced by a FIFO")
+    assert changed
+    assert pinned_identity is not None
+    assert promoted_identities == [pinned_identity]
+    assert direct_open_flags == [_O_PATH | _O_NOFOLLOW | _O_CLOEXEC]
+    assert result.startswith("Error: search stopped safely:")
+    assert "1 match" not in result
+
+
+@pytest.mark.skipif(not hasattr(os, "O_PATH"), reason="BLOCKED: Linux O_PATH is required")
+def test_posix_symlink_replacement_after_pin_never_opens_the_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    victim = root / "victim.txt"
+    victim.write_text("PINNED_CONTENT", encoding="utf-8")
+    _, outside_file = _outside_marker(tmp_path)
+    workspace = Workspace.at(root)
+    _install(monkeypatch, workspace)
+    pinned_fd: int | None = None
+    changed = False
+    target_opened = False
+    original_open = os.open
+
+    def replace_after_pin(name: str, handle: int) -> None:
+        nonlocal changed, pinned_fd
+        if name == victim.name and not changed:
+            pinned_fd = handle
+            victim.rename(root / "victim-saved.txt")
+            _file_link(victim, outside_file)
+            changed = True
+
+    def record_open(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal target_opened
+        if Path(path) == outside_file:
+            target_opened = True
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", record_open)
+    result = search_text(
+        "PINNED_CONTENT",
+        _hooks=SearchHooks(after_posix_pin=replace_after_pin),
+    )
+    assert changed
+    assert pinned_fd is not None
+    assert result.startswith("Error: search stopped safely:")
+    assert "1 match" not in result
+    assert not target_opened
+
+
+@pytest.mark.skipif(not hasattr(os, "O_PATH"), reason="BLOCKED: Linux O_PATH is required")
+def test_posix_procfd_promotion_failure_fails_closed_without_name_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / "secret.txt").write_text("SECRET_MARKER", encoding="utf-8")
+    workspace = Workspace.at(root)
+    _install(monkeypatch, workspace)
+    original_open = os.open
+    procfd_paths: list[str] = []
+    direct_read_paths: list[str] = []
+
+    def fail_procfd(
+        path: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        shown = os.fspath(path)
+        if shown.startswith("/proc/self/fd/"):
+            procfd_paths.append(shown)
+            raise OSError("injected procfd failure")
+        if shown == "secret.txt" and not flags & _O_PATH:
+            direct_read_paths.append(shown)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", fail_procfd)
+    result = search_text("SECRET_MARKER")
+    assert procfd_paths
+    assert direct_read_paths == []
+    assert result.startswith("Error: search stopped safely:")
+    assert "SECRET_MARKER" not in result
 
 
 def test_windows_path_containment_is_volume_and_case_component_strict() -> None:

@@ -1,13 +1,14 @@
 """Race-resistant file enumeration and reads for search_text.
 
 All symlinks and Windows reparse points are refused, including links whose
-current targets are inside the workspace. Windows supports 64-bit AMD64 on a
-local fixed NTFS volume only. POSIX special entries are inspected before open;
-the threat model assumes untrusted writers cannot create device nodes because
-POSIX has no portable metadata-only open primitive that closes that race.
-Unsupported or unverifiable cases fail closed. Windows pins every directory
-from the volume root through the workspace without delete sharing and opens
-each child relative to its verified parent handle.
+current targets are inside the workspace. Windows support is limited to 64-bit
+AMD64 on a local fixed NTFS volume; it pins directories from the volume root
+without delete sharing and opens children relative to verified parent handles.
+On Linux, O_PATH pins each entry so symlinks and special files can be rejected
+before a read-capable open. Regular files and directories are promoted through
+/proc/self/fd and checked against the pinned identity. Linux support requires
+procfs and a validated ext4 workspace. Unsupported or unverifiable cases fail
+closed.
 """
 
 from __future__ import annotations
@@ -16,17 +17,22 @@ import ctypes
 import ntpath
 import os
 import platform
+import re
 import stat
 import struct
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from sandbox import DENIED_NAMES, DENIED_SUFFIXES, SandboxError
 
 if TYPE_CHECKING:
     from sandbox import Workspace
+
+
+def _os_function(name: str) -> Callable[..., Any]:
+    return cast(Callable[..., Any], getattr(os, name))
 
 
 class SecureSearchError(RuntimeError):
@@ -42,6 +48,7 @@ class SearchHooks:
     after_child_open: Callable[[Path], None] | None = None
     before_read: Callable[[Path], None] | None = None
     after_parent_verify: Callable[[str], None] | None = None
+    after_posix_pin: Callable[[str, int], None] | None = None
 
 
 def _lexical_candidate(workspace: Workspace, candidate: str) -> Path:
@@ -141,16 +148,99 @@ class _Backend:
 
 
 class _PosixBackend(_Backend):
-    def __init__(self, workspace: Workspace) -> None:
+    SUPPORTED_LINUX_FILESYSTEMS = frozenset({"ext4"})
+    _MIN_MOUNTINFO_FIELDS = 5
+
+    def __init__(self, workspace: Workspace, hooks: SearchHooks | None = None) -> None:
         self.workspace = workspace
+        self.hooks = hooks
         self.root_identity: tuple[int, int] | None = None
+        self.pinned_handles: dict[int, int] = {}
+
+    @staticmethod
+    def _unescape_mount_field(value: str) -> str:
+        return re.sub(r"\\([0-7]{3})", lambda match: chr(int(match.group(1), 8)), value)
+
+    @staticmethod
+    def _filesystem_type(path: Path, device: int) -> str:
+        major = _os_function("major")
+        minor = _os_function("minor")
+        expected_device = f"{major(device)}:{minor(device)}"
+        matches: list[tuple[int, str]] = []
+        with Path("/proc/self/mountinfo").open(encoding="ascii") as mountinfo:
+            for line in mountinfo:
+                fields, separator, mounted = line.rstrip("\n").partition(" - ")
+                before = fields.split()
+                after = mounted.split()
+                if (
+                    not separator
+                    or len(before) < _PosixBackend._MIN_MOUNTINFO_FIELDS
+                    or len(after) < 1
+                    or before[2] != expected_device
+                ):
+                    continue
+                mountpoint = Path(_PosixBackend._unescape_mount_field(before[4]))
+                if path == mountpoint or path.is_relative_to(mountpoint):
+                    matches.append((len(mountpoint.parts), after[0]))
+        if not matches:
+            raise SecureSearchError("workspace filesystem could not be identified from mountinfo")
+        return max(matches, key=lambda match: match[0])[1]
+
+    @classmethod
+    def require_supported_filesystem(cls, name: str) -> None:
+        if name not in cls.SUPPORTED_LINUX_FILESYSTEMS:
+            raise SecureSearchError(f"unsupported Linux search filesystem: {name}")
+
+    @staticmethod
+    def _require_linux_features() -> None:
+        if platform.system() != "Linux":
+            raise SecureSearchError("secure POSIX search is supported on Linux only")
+        if (
+            os.open not in os.supports_dir_fd
+            or os.scandir not in os.supports_fd
+            or not getattr(os, "O_PATH", 0)
+            or not getattr(os, "O_NOFOLLOW", 0)
+            or not getattr(os, "O_DIRECTORY", 0)
+            or not getattr(os, "O_CLOEXEC", 0)
+        ):
+            raise SecureSearchError("Linux O_PATH descriptor-relative search is unavailable")
+
+    @staticmethod
+    def _verify_procfd(handle: int) -> None:
+        procfd_directory = Path("/proc/self/fd")
+        try:
+            info = procfd_directory.stat()
+        except OSError as exc:
+            raise SecureSearchError("Linux procfs descriptor paths are unavailable") from exc
+        if not stat.S_ISDIR(info.st_mode):
+            raise SecureSearchError("Linux procfs descriptor path is not a directory")
+        if _PosixBackend._filesystem_type(procfd_directory, info.st_dev) != "proc":
+            raise SecureSearchError("Linux procfd path is not on procfs")
+        flags = (
+            os.O_RDONLY
+            | _PosixBackend._linux_flag("O_DIRECTORY")
+            | _PosixBackend._linux_flag("O_CLOEXEC")
+        )
+        probe = os.open(f"/proc/self/fd/{handle}", flags)
+        try:
+            pinned = os.fstat(handle)
+            opened = os.fstat(probe)
+            if (opened.st_dev, opened.st_ino) != (pinned.st_dev, pinned.st_ino):
+                raise SecureSearchError("procfs descriptor promotion changed object identity")
+        finally:
+            os.close(probe)
+
+    @staticmethod
+    def _linux_flag(name: str) -> int:
+        flag = getattr(os, name, None)
+        if not isinstance(flag, int):
+            raise SecureSearchError(f"required Linux open flag {name} is unavailable")
+        return flag
 
     def open_root(self) -> int:
-        required = os.open in os.supports_dir_fd and os.scandir in os.supports_fd
-        nofollow = getattr(os, "O_NOFOLLOW", 0)
-        directory = getattr(os, "O_DIRECTORY", 0)
-        if not required or not nofollow or not directory:
-            raise SecureSearchError("POSIX descriptor-relative no-follow traversal is unavailable")
+        self._require_linux_features()
+        nofollow = self._linux_flag("O_NOFOLLOW")
+        directory = self._linux_flag("O_DIRECTORY")
         expected = (self.workspace._root_device, self.workspace._root_inode)  # noqa: SLF001 - verify captured root identity
         if None in expected:
             raise SecureSearchError("workspace root identity was not captured")
@@ -163,7 +253,11 @@ class _PosixBackend(_Backend):
             info = os.fstat(fd)
             if not stat.S_ISDIR(info.st_mode) or (info.st_dev, info.st_ino) != expected:
                 raise SecureSearchError("workspace root identity changed")  # noqa: TRY301 - close the pinned handle in the enclosing except
+            self.require_supported_filesystem(
+                self._filesystem_type(self.workspace.root, info.st_dev)
+            )
             self.root_identity = (info.st_dev, info.st_ino)
+            self._verify_procfd(fd)
             self.verify_root(fd)
         except BaseException:
             os.close(fd)
@@ -196,29 +290,52 @@ class _PosixBackend(_Backend):
         return names
 
     def open_child(self, parent: int, name: str, identity: int | None) -> int:
-        nofollow = getattr(os, "O_NOFOLLOW", 0)
-        if not nofollow:
-            raise SecureSearchError("POSIX no-follow open is unavailable")
-        flags = (
-            os.O_RDONLY
-            | nofollow
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NONBLOCK", 0)
-            | getattr(os, "O_NOCTTY", 0)
+        if not name or name in (".", "..") or "/" in name or "\0" in name:
+            raise SecureSearchError("invalid Linux directory entry name")
+        path_flags = (
+            self._linux_flag("O_PATH")
+            | self._linux_flag("O_NOFOLLOW")
+            | self._linux_flag("O_CLOEXEC")
         )
-        entry = os.stat(name, dir_fd=parent, follow_symlinks=False)
-        if not (stat.S_ISREG(entry.st_mode) or stat.S_ISDIR(entry.st_mode)):
-            raise SecureSearchError("special filesystem entries are refused")
-        fd = os.open(name, flags, dir_fd=parent)
-        info = os.fstat(fd)
-        root_device = self.root_identity[0] if self.root_identity else None
-        if (identity not in (None, 0) and info.st_ino != identity) or info.st_dev != root_device:
-            os.close(fd)
-            raise SecureSearchError("entry identity or volume could not be verified")
-        if stat.S_ISLNK(info.st_mode):
-            os.close(fd)
-            raise SecureSearchError("symbolic links are not followed")
-        return fd
+        path_handle = os.open(name, path_flags, dir_fd=parent)
+        io_handle: int | None = None
+        try:
+            pinned = os.fstat(path_handle)
+            if stat.S_ISLNK(pinned.st_mode):
+                raise SecureSearchError("symbolic links are not followed")  # noqa: TRY301 - close pinned fd below
+            if not (stat.S_ISREG(pinned.st_mode) or stat.S_ISDIR(pinned.st_mode)):
+                raise SecureSearchError("special filesystem entries are refused")  # noqa: TRY301 - close pinned fd below
+            root_device = self.root_identity[0] if self.root_identity else None
+            if (
+                (identity not in (None, 0) and pinned.st_ino != identity)
+                or pinned.st_dev != root_device
+            ):
+                raise SecureSearchError("entry identity or volume could not be verified")  # noqa: TRY301 - close pinned fd below
+            if self.hooks and self.hooks.after_posix_pin:
+                self.hooks.after_posix_pin(name, path_handle)
+            io_flags = (
+                os.O_RDONLY
+                | self._linux_flag("O_CLOEXEC")
+                | self._linux_flag("O_NONBLOCK")
+                | self._linux_flag("O_NOCTTY")
+            )
+            if stat.S_ISDIR(pinned.st_mode):
+                io_flags |= self._linux_flag("O_DIRECTORY")
+            io_handle = os.open(f"/proc/self/fd/{path_handle}", io_flags)
+            opened = os.fstat(io_handle)
+            if (
+                (opened.st_dev, opened.st_ino) != (pinned.st_dev, pinned.st_ino)
+                or stat.S_IFMT(opened.st_mode) != stat.S_IFMT(pinned.st_mode)
+            ):
+                raise SecureSearchError("procfs promotion changed pinned object identity")  # noqa: TRY301 - close pinned fd below
+            self.pinned_handles[io_handle] = path_handle
+        except BaseException:
+            if io_handle is not None:
+                os.close(io_handle)
+            os.close(path_handle)
+            raise
+        else:
+            return io_handle
 
     def verify_directory_entry(
         self, parent: int, name: str, child: int, identity: int | None
@@ -257,7 +374,12 @@ class _PosixBackend(_Backend):
         return bytes(chunks)
 
     def close(self, handle: int) -> None:
-        os.close(handle)
+        path_handle = self.pinned_handles.pop(handle, None)
+        try:
+            os.close(handle)
+        finally:
+            if path_handle is not None:
+                os.close(path_handle)
 
 
 class _WindowsBackend(_Backend):
@@ -943,7 +1065,9 @@ def _iter_search_files(  # noqa: PLR0912 - guards remain adjacent to each lifecy
     if len(relative_parts) > MAX_SECURE_SEARCH_DEPTH:
         raise SecureSearchError("workspace path exceeds the secure traversal depth limit")
     backend: _Backend = (
-        _WindowsBackend(workspace, hooks) if os.name == "nt" else _PosixBackend(workspace)
+        _WindowsBackend(workspace, hooks)
+        if os.name == "nt"
+        else _PosixBackend(workspace, hooks)
     )
     root_handle = backend.open_root()
     handles = [root_handle]

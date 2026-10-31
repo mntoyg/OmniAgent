@@ -174,14 +174,14 @@ perform; it is a leak that gets written down and then trained on.
 
 | Threat | Mitigation |
 |---|---|
-| `../../../etc/passwd`, `..\..\Windows\System32` | The path is resolved, then required to sit under the workspace root. |
-| Absolute paths outside the root | Same check — an absolute path is allowed only if it lands inside the workspace. |
-| Symlinks and junctions pointing out | `Path.resolve()` follows them *before* the containment check, so the target is tested, not the link. |
-| Secrets inside the workspace | Dot-files and dot-directories (`.env`, `.git`, `.ssh`) are refused outright, as are credential suffixes (`.pem`, `.key`, `.p12`, …) and names (`id_rsa`, `credentials`). |
+| `../../../etc/passwd`, `..\..\Windows\System32`, absolute paths outside the root | Paths are resolved for admission and must land inside the workspace. `search_text` then walks the admitted tree through verified directory handles. |
+| Symlinks and junctions | `read_file` and `list_directory` resolve the requested path before checking containment. `search_text` refuses every symlink and every Windows reparse point, including links that point back inside the workspace. It reads bytes only from the object whose handle it verified. |
+| Concurrent changes while searching | The race-resistant guarantee applies to `search_text` only. It uses handle-relative enumeration and a bounded read from the verified file object. Windows support is 64-bit AMD64 on a local fixed NTFS volume. POSIX support is Linux with `O_PATH`, procfs, and ext4; unsupported platforms and filesystems fail closed. Other file tools retain path-based behavior and do not have this concurrent-writer guarantee. |
+| Secrets inside the workspace | Dot-files and dot-directories (`.env`, `.git`, `.ssh`) are refused, as are credential suffixes (`.pem`, `.key`, `.p12`, …) and names (`id_rsa`, `credentials`). |
 | The agent reading its own log back | The active `--log-file` is denied, so earlier conversations cannot re-enter the context and the dataset. |
-| Huge files exhausting memory | Size is checked before the read (100 KB), and the returned text is capped (16 000 chars). |
-| Binary files flooding the context | A NUL byte in the first 8 KB rejects the file. |
-| Devices — `CON`, `NUL`, `COM1`, `\.\PhysicalDrive0` | Only regular files pass. |
+| Huge files exhausting memory | `read_file` refuses files over 100 KB and caps returned text at 16 000 characters. `search_text` checks the verified handle size and reads at most 100 KB plus one byte to detect growth. It scans at most 400 files and returns at most 50 matches. |
+| Binary files flooding the context | A NUL byte in the first 8 KB rejects a file from search results. |
+| Devices — `CON`, `NUL`, `COM1`, `\\.\PhysicalDrive0` | `search_text` accepts only regular files. On Linux it first pins an entry with `O_PATH`, rejects special files, then promotes that same object through `/proc/self/fd`; it never falls back to opening the workspace name for reading. |
 | UNC and network paths, NUL bytes in a path | Rejected before resolution. |
 | ReDoS via a model-supplied pattern | There is no regex. `search_text` is literal substring matching, so a hostile pattern has nothing to backtrack over. |
 
@@ -201,6 +201,12 @@ Observation: Error: path is outside the workspace (D:\code-project\OmniAgent);
 Line endings are normalised on read, so the same file produces the same
 Observation on Windows and on Linux rather than baking the collection platform
 into the dataset.
+
+The handle checks do not provide snapshot consistency: another process can
+change a regular file's contents in place while `search_text` is reading it.
+Hard-link checks are defense in depth and do not prove where a file originated.
+The application should also run with operating-system permissions that prevent
+it from reading sensitive paths outside the workspace.
 
 ---
 
@@ -700,7 +706,12 @@ ruff check . && mypy && pytest
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same three gates
-on every push and pull request: `ruff check .`, `mypy`, `pytest`, on Python 3.12.
+on Ubuntu and Windows with Python 3.12: `ruff check .`, `mypy`, and `pytest`.
+The Linux job requires the workspace filesystem to be ext4, procfs descriptor
+paths, and passwordless `sudo` for creating the device node used by the
+device-race regression; missing prerequisites fail the job. Linux-only POSIX
+tests run on Ubuntu. Windows junction and Win32 handle tests run on Windows;
+POSIX descriptor tests are reported as platform skips there.
 
 The training extras are deliberately not installed there — torch is gigabytes
 and no test needs it. That difference is itself a thing to get wrong, so the
