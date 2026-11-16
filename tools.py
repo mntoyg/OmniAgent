@@ -536,6 +536,14 @@ def list_directory(path: str = ".") -> str:
     return f"{shown}:\n" + "\n".join(f"  {entry}" for entry in entries)
 
 
+def _windows_file_attributes(metadata: object) -> int:
+    """Return Windows file attributes or refuse an unverifiable entry."""
+    attributes = getattr(metadata, "st_file_attributes", None)
+    if type(attributes) is not int:
+        raise OSError("Windows stat omitted file attributes")
+    return attributes
+
+
 def _searchable_files(workspace: Workspace, start: Path) -> list[Path]:  # noqa: PLR0912 - separate guard for each entry type and refusal
     """Files under `start` the workspace admits, pruned branch by branch.
 
@@ -563,8 +571,9 @@ def _searchable_files(workspace: Workspace, start: Path) -> list[Path]:  # noqa:
             try:
                 metadata = entry.stat(follow_symlinks=False)
                 if os.name == "nt":
+                    file_attributes = _windows_file_attributes(metadata)
                     is_reparse_point = bool(
-                        metadata.st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT
+                        file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT
                     )
                 else:
                     is_reparse_point = entry.is_symlink()
