@@ -285,6 +285,10 @@ def create_scan_container(repo: Path, template: Path, name: str, docker_bin: str
         "git",
         "--redact=100",
         "--no-banner",
+        # Gitleaks colours its log lines even when stdout/stderr is not a TTY
+        # (ESC[90m...ESC[32mINF...), so the commit-summary line would never match
+        # the strict SUMMARY pattern. Ask for plain text instead of loosening it.
+        "--no-color",
         "--exit-code=2",
         "--report-format=template",
         "--report-template=/template.tmpl",

@@ -430,3 +430,45 @@ def test_docker_cp_allows_report_over_256k_and_rejects_over_8m(tmp_path: Path) -
     payload.write_bytes(b"x" * (MAX_REPORT + 1))
     with pytest.raises(ScanError):
         docker_cp("unused", str(payload), tmp_path / "too-large", docker_bin=str(fake))
+
+
+def test_scanner_is_started_with_colour_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Gitleaks colours its log even without a TTY; the strict summary needs plain text."""
+    seen: list[list[str]] = []
+
+    def record(args: list[str], timeout: int = module.TIMEOUT) -> tuple[int, bytes, bytes]:
+        del timeout
+        seen.append(args)
+        return 0, b"", b""
+
+    monkeypatch.setattr(module, "capture", record)
+    module.create_scan_container(tmp_path, tmp_path / "template", "name", "docker")
+
+    (args,) = seen
+    scanner_args = args[args.index(module.IMAGE) + 1 :]
+    expect_equal("--no-color" in scanner_args, True)
+
+
+def test_summary_parser_rejects_the_coloured_line_gitleaks_prints_by_default() -> None:
+    """MEASURED 2026-11-22 (gitleaks v8.30.1, stderr captured without a TTY).
+
+    The colour escapes are why `scan_commit_summary` failed in CI. The parser stays
+    strict: the fix is `--no-color`, not a looser pattern.
+    """
+    coloured = (
+        b"\x1b[90m8:04AM\x1b[0m \x1b[32mINF\x1b[0m \x1b[1m1 commits scanned.\x1b[0m\n"
+        b"\x1b[90m8:04AM\x1b[0m \x1b[32mINF\x1b[0m \x1b[1mno leaks found\x1b[0m\n"
+    )
+    with pytest.raises(ScanError):
+        summary_count(coloured)
+
+
+def test_summary_parser_accepts_the_plain_output_of_a_whole_clean_scan() -> None:
+    plain = (
+        b"8:05AM INF 1 commits scanned.\n"
+        b"8:05AM INF scanned ~22 bytes (22 bytes) in 193ms\n"
+        b"8:05AM INF no leaks found\n"
+    )
+    expect_equal(summary_count(plain), 1)
