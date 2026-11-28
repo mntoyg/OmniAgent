@@ -15,11 +15,12 @@ import stat
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from sandbox import MAX_FILE_BYTES, SandboxError, Workspace, get_workspace, set_workspace
-from tools import search_text
+from tools import _windows_file_attributes, search_text
 
 #: Deliberately not a word this repository uses: a fixture needle that also
 #: occurred in the tree would make a failure ambiguous.
@@ -250,6 +251,19 @@ def _search_from(
         set_workspace(old)
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        object(),
+        SimpleNamespace(st_file_attributes="invalid"),
+        SimpleNamespace(st_file_attributes=True),
+    ],
+)
+def test_windows_file_attributes_refuse_missing_or_invalid_values(metadata: object) -> None:
+    with pytest.raises(OSError, match="Windows stat omitted file attributes"):
+        _windows_file_attributes(metadata)
+
+
 def test_search_text_prunes_windows_junction_to_external_directory(tmp_path: Path) -> None:
     if os.name != "nt":
         pytest.skip("Windows junction test requires mklink /J")
@@ -270,7 +284,8 @@ def test_search_text_prunes_windows_junction_to_external_directory(tmp_path: Pat
     try:
         with os.scandir(root) as entries:
             entry = next(entries)
-            attrs = entry.stat(follow_symlinks=False).st_file_attributes
+            attrs = getattr(entry.stat(follow_symlinks=False), "st_file_attributes", None)
+            assert isinstance(attrs, int), "Windows stat did not provide file attributes"
             assert attrs & stat.FILE_ATTRIBUTE_REPARSE_POINT
             assert entry.is_dir(follow_symlinks=False)
             assert not entry.is_symlink(), "fixture must be a junction, not a symlink"
